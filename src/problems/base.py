@@ -95,11 +95,20 @@ class Problem(Object):
             target.set_parameter_values(x[nprob:nprob+target.nparameters])
             nprob += target.nparameters
 
-    def get_parameter_dict(self, model, group=None):
+    def get_parameter_dict(self, model, group=None, nsources=None):
         params = []
-        for ip, p in enumerate(self.parameters):
-            if group in p.groups or group is None:
-                params.append((p.name, model[ip]))
+        nsources = 1
+        if nsources:
+            for ip, p in enumerate(self.parameters):
+                if group in p.groups:
+                    try:
+                        params.append((p.name[:-1], model[ip]))#
+                    except:
+                        pass
+        else:
+            for ip, p in enumerate(self.parameters):
+                if group in p.groups:
+                    params.append((p.name, model[ip]))
         return ADict(params)
 
     def get_parameter_array(self, d):
