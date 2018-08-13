@@ -68,7 +68,9 @@ class SatelliteTargetPlot(PlotConfig):
         models = history.models[isort, :]
         xbest = models[0, :]
 
-        source = problem.get_source(xbest)
+        source1 = problem.get_source(xbest, 0)
+        source2 = problem.get_source(xbest, 1)
+        source3 = problem.get_source(xbest, 2)
         results = problem.evaluate(xbest, targets=sat_targets)
 
         def decorateAxes(ax, scene, title):
@@ -83,17 +85,31 @@ class SatelliteTargetPlot(PlotConfig):
 
         def drawSource(ax, scene):
             if scene.frame.isMeter():
-                fn, fe = source.outline(cs='xy').T
+                fn, fe = source1.outline(cs='xy').T
+                fn2, fe2 = source2.outline(cs='xy').T
+                fn3, fe3 = source3.outline(cs='xy').T
             elif scene.frame.isDegree():
-                fn, fe = source.outline(cs='latlon').T
-                fn -= source.lat
-                fe -= source.lon
+                fn, fe = source1.outline(cs='latlon').T
+                fn2, fe2 = source2.outline(cs='latlon').T
+                fn3, fe3 = source3.outline(cs='latlon').T
 
+                fn -= source1.lat
+                fe -= source1.lon
+                fn2 -= source2.lat
+                fe2 -= source2.lon
+                fn3 -= source3.lat
+                fe3 -= source3.lon
             # source is centered
             ax.scatter(0., 0., color='black', s=3, alpha=.5, marker='o')
             ax.fill(fe, fn,
                     edgecolor=(0., 0., 0.),
                     facecolor=(.5, .5, .5), alpha=0.5)
+            ax.fill(fe2, fn2,
+                    edgecolor=(0., 0., 0.),
+                    facecolor=(.1, .2, .4), alpha=0.5)
+            ax.fill(fe3, fn3,
+                    edgecolor=(0., 0., 0.),
+                    facecolor=(.1, .2, .4), alpha=0.5)
 
         def mapDisplacementGrid(displacements, scene):
             arr = num.full_like(scene.displacement, fill_value=num.nan)
@@ -125,10 +141,10 @@ class SatelliteTargetPlot(PlotConfig):
             if target.scene.frame.isMeter():
                 off_n, off_e = map(float, latlon_to_ne_numpy(
                     target.scene.frame.llLat, target.scene.frame.llLon,
-                    source.lat, source.lon))
+                    source1.lat, source1.lon))
             if target.scene.frame.isDegree():
-                off_n = source.lat - target.scene.frame.llLat
-                off_e = source.lon - target.scene.frame.llLon
+                off_n = source1.lat - target.scene.frame.llLat
+                off_e = source1.lon - target.scene.frame.llLon
 
             turE, turN, tllE, tllN = zip(
                 *[(l.gridE.max()-off_e,
@@ -171,10 +187,10 @@ modelled data and (right) the model residual.'''.format(meta=scene.meta))
             if scene.frame.isMeter():
                 offset_n, offset_e = map(float, latlon_to_ne_numpy(
                     scene.frame.llLat, scene.frame.llLon,
-                    source.lat, source.lon))
+                    source1.lat, source1.lon))
             elif scene.frame.isDegree():
-                offset_n = source.lat - scene.frame.llLat
-                offset_e = source.lon - scene.frame.llLon
+                offset_n = source1.lat - scene.frame.llLat
+                offset_e = source1.lon - scene.frame.llLon
 
             im_extent = (scene.frame.E.min() - offset_e,
                          scene.frame.E.max() - offset_e,

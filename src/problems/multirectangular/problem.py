@@ -41,7 +41,7 @@ class MultiRectangularProblemConfig(ProblemConfig):
             norm_exponent=self.norm_exponent)
 
         return problem
-    
+
 from pyrocko.guts import List
 
 km = 1e3
@@ -93,8 +93,8 @@ class CombiSource(gf.Source):
 
 
 class MultiRectangularProblem(Problem):
-    
-    nsources = 2
+
+    nsources = 3
     problem_parameters = []
     problem_waveform_parameters = []
 
@@ -114,7 +114,7 @@ class MultiRectangularProblem(Problem):
         problem_waveform_parameters.append(Parameter('nucleation_y%s' % i, 'offset', label='Nucleation Y'))
         problem_waveform_parameters.append(Parameter('time%s' % i, 's', label='Time'))
 
-    dependants = []  
+    dependants = []
     distance_min = Float.T(default=0.0)
 
     def pack(self, source):
@@ -125,13 +125,13 @@ class MultiRectangularProblem(Problem):
         return arr
 
     def get_source(self, x, i):
-        d = self.get_parameter_dict(x)
+        d = self.get_parameter_dict(x[0+9*i:9+i*9])
+
         p = {}
         for k in self.base_source.keys():
             if k in d:
                 p[k] = float(
                     self.ranges[k+str(i)].make_relative(self.base_source[k], d[k]))
-
         source = self.base_source.clone(**p)
 
         return source
@@ -152,7 +152,7 @@ class MultiRectangularProblem(Problem):
 
     @classmethod
     def get_plot_classes(cls):
-        plots = super(RectangularProblem, cls).get_plot_classes()
+        plots = super(MultiRectangularProblem, cls).get_plot_classes()
         return plots
 
 

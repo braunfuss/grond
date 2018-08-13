@@ -26,10 +26,65 @@ logger = logging.getLogger('grond.problems.base')
 km = 1e3
 as_km = dict(scale_factor=km, scale_unit='km')
 
+def range_overlap(a_min, a_max, b_min, b_max):
+    '''Neither range is completely greater than the other
+    '''
+    overlapping = True
+    if (a_min > b_max) or (a_max < b_min):
+        overlapping = False
+    return overlapping
+
+def overlap(r1, r2):
+    '''Overlapping rectangles overlap both horizontally & vertically
+    '''
+    return range_overlap(r1.left, r1.right, r2.left, r2.right) and range_overlap(r1.bottom, r1.top, r2.bottom, r2.top)
 
 def nextpow2(i):
     return 2**int(math.ceil(math.log(i)/math.log(2.)))
 
+
+
+class CombiSource(gf.Source):
+    '''Composite source model.'''
+
+    discretized_source_class = gf.DiscretizedMTSource
+
+    subsources = List.T(gf.Source.T())
+
+    def __init__(self, subsources=[], **kwargs):
+        if subsources:
+
+            lats = num.array(
+                [subsource.lat for subsource in subsources], dtype=num.float)
+            lons = num.array(
+                [subsource.lon for subsource in subsources], dtype=num.float)
+
+            assert num.all(lats == lats[0]) and num.all(lons == lons[0])
+            lat, lon = lats[0], lons[0]
+
+            # if not same use:
+            # lat, lon = center_latlon(subsources)
+
+            depth = float(num.mean([p.depth for p in subsources]))
+            t = float(num.mean([p.time for p in subsources]))
+            kwargs.update(time=t, lat=float(lat), lon=float(lon), depth=depth)
+
+        gf.Source.__init__(self, subsources=subsources, **kwargs)
+
+    def get_factor(self):
+        return 1.0
+
+    def discretize_basesource(self, store, target=None):
+
+        dsources = []
+        t0 = self.subsources[0].time
+        for sf in self.subsources:
+            assert t0 == sf.time
+            ds = sf.discretize_basesource(store, target)
+            ds.m6s *= sf.get_factor()
+            dsources.append(ds)
+
+        return gf.DiscretizedMTSource.combine(dsources)
 
 class ProblemConfig(Object):
     '''
@@ -97,7 +152,7 @@ class Problem(Object):
 
     def get_parameter_dict(self, model, group=None, nsources=None):
         params = []
-        nsources = 1
+        nsources = 3
         if nsources:
             for ip, p in enumerate(self.parameters):
                 if group in p.groups:
@@ -456,10 +511,21 @@ class Problem(Object):
 
         return self._family_mask
 
-    def evaluate(self, x, mask=None, result_mode='full', targets=None):
-        source = self.get_source(x)
-        engine = self.get_engine()
 
+    def evaluate(self, x, mask=None, result_mode='full', targets=None):
+        nsources = 3
+        patches = []
+        outlines = []
+        if nsources == 3:
+            for i in range(self.nsources):
+                source = self.get_source(x, i)
+                patches.append(source)
+                outlines.append(source.outline())
+        else:
+                source = self.get_source(x)
+
+        engine = self.get_engine()
+        sources = CombiSource(subsources=patches)
         self.set_target_parameter_values(x)
 
         if mask is not None and targets is not None:
@@ -472,7 +538,7 @@ class Problem(Object):
         modelling_targets = []
         t2m_map = {}
         for itarget, target in enumerate(targets):
-            t2m_map[target] = target.prepare_modelling(engine, source, targets)
+            t2m_map[target] = target.prepare_modelling(engine, sources, targets)
             if mask is None or mask[itarget]:
                 modelling_targets.extend(t2m_map[target])
 
@@ -485,7 +551,8 @@ class Problem(Object):
 
         modelling_targets_unique = list(u2m_map.keys())
 
-        resp = engine.process(source, modelling_targets_unique)
+        resp = engine.process(sources, modelling_targets_unique)
+
         modelling_results_unique = list(resp.results_list[0])
 
         modelling_results = [None] * len(modelling_targets)
@@ -502,14 +569,14 @@ class Problem(Object):
             nmt_this = len(t2m_map[target])
             if mask is None or mask[itarget]:
                 result = target.finalize_modelling(
-                    engine, source,
+                    engine, sources,
                     t2m_map[target],
                     modelling_results[imt:imt+nmt_this])
 
                 imt += nmt_this
             else:
                 result = gf.SeismosizerError(
-                    'target was excluded from modelling')
+                        'target was excluded from modelling')
 
             results.append(result)
 
