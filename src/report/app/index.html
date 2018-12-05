@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="reportApp">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <title>Grond - Earthquake reports</title>
+
+        <!-- CSS -->
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link href="css/prism.css" rel="stylesheet">
+        <link href="css/local.css" rel="stylesheet">
+
+        <!-- JS -->
+        <script type="text/javascript" src="js/js-yaml.min.js"></script>
+        <script type="text/javascript" src="js/jquery.min.js"></script>
+        <script type="text/javascript" src="js/angular.min.js"></script>
+        <script type="text/javascript" src="js/angular-route.min.js"></script>
+        <script type="text/javascript" src="js/bootstrap.min.js"></script>
+        <script type="text/javascript" src="js/feather.min.js"></script>
+        <script type="text/javascript" src="js/prism.js"></script>
+
+        <script type="text/javascript" src="js/app.js"></script>
+
+
+        <link rel="shortcut icon" href="favicon.png" type="image/png">
+    </head>
+
+    <body>
+
+        <div class="container" id="browser-warning" ng-cloak>
+            <div class="alert alert-warning" role="alert">
+                <h4 class="alert-heading">Template Error</h4>
+                <p>
+                    We could not load the template file, probably due to browser security measures.<br />
+                    Please use <b>Mozilla Firefox</b> or start Chrome with <code>--allow-file-access-from-files</code> to view <code>reports/index.html</code>.
+                </p>
+                <hr />
+                <p class="mb-0">
+                    Or start a local webserver with <code>grond report -so</code>.
+                </p>
+            </div>
+        </div>
+
+        <ng-view>
+        </ng-view>
+
+        <hr />
+
+
+        <div ng-controller="Info" class="container footer">
+
+            <div class="row no-gutters">
+                <div class="col-2">
+                </div>
+                <div class="col-10">
+                    <p class="text-center">Busted with Grond - {{ version }} - <a href="https://pyrocko.org/" target="_blank">pyrocko.org</a></p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

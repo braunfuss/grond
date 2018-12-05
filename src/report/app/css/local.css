@@ -1,0 +1,290 @@
+
+table.have-op-icons tr span.op-icon,
+table.have-op-icons tr span.op-icon-sec {
+    visibility: hidden;
+}
+
+table.have-op-icons tr:hover span.op-icon,
+table.have-op-icons tr:hover span.op-icon-sec {
+    visibility: visible;
+}
+
+table.have-op-icons span.op-icon-sec {
+    color: #999;
+}
+
+table.have-op-icons td:hover span.op-icon-sec {
+    color: black;
+}
+
+textarea.code {
+    font-family: monospace;
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+div.section-menu {
+    float: right;
+}
+
+tr.no-hover:hover th,
+tr.no-hover:hover td {
+    background-color: white;
+}
+
+span.author-and-date {
+    font-size: small;
+    color: #999;
+}
+
+.spacedrow {
+    margin: 5px;
+}
+
+.lightgray {
+    background-color: #999;
+}
+
+.lightgray:hover {
+    background-color: #555;
+}
+
+.pagination {
+    margin: 0px;
+}
+
+.droptoggle {
+    margin-right: 5px;
+}
+
+del {
+    background-color: #efcbcb;
+}
+
+ins {
+    background-color: #cae7ca;
+}
+
+tr.has-manual-comments {
+    font-weight: bold;
+}
+
+table.stats {
+    margin-bottom: 2rem;
+    margin-top: 1rem;
+}
+
+table.stats tt {
+    white-space: pre;
+}
+
+table.stats td,
+table.stats th {
+   padding-left: 1em;
+   padding-right: 1em;
+   padding-bottom: 0.2em;
+   padding-top: 0.2em;
+   white-space: nowrap;
+   border-top: none;
+}
+
+/*tr.row-parameter {*/
+/*  padding: .1rem;*/
+/*  line-height: 1;*/
+/*}*/
+
+/*table.report-list thead tr:first-child {
+    border-bottom: 1px solid black;
+    border-top: 1px solid black;
+}*/
+
+/*table.report-list tbody tr:last-child {
+    border-bottom: 1px solid black;
+}*/
+
+table.report-list td,
+table.report-list th {
+   padding-left: 1em;
+   padding-right: 1em;
+   padding-bottom: 0.2em;
+   padding-top: 0.2em;
+   white-space: nowrap;
+   border-top: none;
+}
+
+table.report-list tr {
+    cursor: pointer;
+}
+
+table.report-list tr.even {
+    background-color: #f6f6f6;
+}
+
+table.report-list tr.even:hover {
+    background-color: #e6e6e6;
+}
+
+table.report-list tr.ref {
+    color: #ff3333;
+}
+
+div#browser-warning {
+    padding-top: 2em;
+    /*display: none;*/
+}
+
+.plot-title {
+    text-transform: capitalize;
+}
+
+.feather {
+  width: 16px;
+  height: 16px;
+  vertical-align: text-bottom;
+}
+
+/*
+ * Sidebar
+ */
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 100; /* Behind the navbar */
+  padding: 5.5rem 0 0; /* Height of navbar */
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+}
+
+.sidebar-sticky {
+  position: relative;
+  top: 0;
+  height: calc(100vh - 48px);
+  padding-top: .5rem;
+  overflow-x: hidden;
+  overflow-y: auto; /* Scrollable contents if viewport is shorter than content. */
+}
+
+@supports ((position: -webkit-sticky) or (position: sticky)) {
+  .sidebar-sticky {
+    position: -webkit-sticky;
+    position: sticky;
+  }
+}
+
+
+.sidebar .nav-link, .nav-tabs .nav-link {
+  padding: 0.1rem 1rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.sidebar a.disabled {
+  color: #999;
+}
+
+.sidebar .nav-link .feather {
+  margin-right: 4px;
+  color: #999;
+}
+
+.sidebar .nav-link.active {
+  color: #007bff;
+}
+
+.sidebar .nav-link:hover .feather,
+.sidebar .nav-link.active .feather {
+  color: inherit;
+  background-color: white;
+}
+
+.sidebar-heading {
+  font-size: .75rem;
+  text-transform: uppercase;
+}
+
+/*
+ * Content
+ */
+
+[role="main"] {
+  padding-top: 5.5rem; /* Space for fixed navbar */
+}
+
+/*
+ * Navbar
+ */
+/*
+.navbar-brand {
+  padding-top: .75rem;
+  padding-bottom: .75rem;
+  font-size: 1rem;
+  background-color: rgba(0, 0, 0, .25);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, .25);
+}
+*/
+/*.navbar .form-control {
+  padding: .75rem 1rem;
+  border-width: 0;
+  border-radius: 0;
+} */
+
+.navbar-main {
+    height: 3.5rem;
+}
+
+.navbar-tabs {
+    height: 2rem;
+}
+
+.nav a:focus {
+    outline: none;
+}
+
+.form-control-dark {
+  color: #fff;
+  background-color: rgba(255, 255, 255, .1);
+  border-color: rgba(255, 255, 255, .1);
+}
+
+.form-control-dark:focus {
+  border-color: transparent;
+/*  box-shadow: 0 0 0 3px rgba(255, 255, 255, .25);*/
+}
+
+.navbar .nav-tabs a.nav-link {
+    color: white;
+}
+
+.navbar .nav-tabs a.active {
+    background-color: #007bff;
+    border-color: #007bff;
+    color: white;
+}
+
+.navbar .nav-tabs {
+    border: none;
+}
+
+.navbar .nav-tabs .nav-item {
+    margin-bottom: 0px;
+}
+
+/*
+ * Modal
+ */
+
+.modal-lg {
+    max-width: 1100px;
+}
+
+.footer p {
+    color: #aaa;
+}
+
+.footer a {
+    color: #aaa;
+}

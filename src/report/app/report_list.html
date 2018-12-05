@@ -1,0 +1,46 @@
+<script>$("#browser-warning").hide();</script>
+<nav class="navbar navbar-dark fixed-top bg-dark flex-md-nowrap p-0 shadow">
+  <a class="navbar-brand col-sm-12 mr-0" href="#">
+    Grond Results
+   </a>
+</nav>
+
+<div class="container">
+    <h1>Reports</h1>
+    <table class="report-list table">
+        <thead>
+            <tr>
+                <th><a href ng-click="set_order('event')">Event</a></th>
+                <th><a href ng-click="set_order('time')">Date/Time</a></th>
+                <th><a href ng-click="set_order('magnitude')">Magnitude</a></th>
+                <th><a href ng-click="set_order('depth')">Depth [km]</a></th>
+                <th><a href ng-click="set_order('type')">Type</a></th>
+                <th><a href ng-click="set_order('run')">Run</a></th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr ng-repeat="line in get_ordered_report_entries()" class="{{ line.report_entry.get_solution_type() + ' ' + line.bg_class }}">
+                <td>
+                    {{ line.report_entry.get_event().name }}
+                </td>
+                <td>
+                    {{ line.report_entry.get_event().time.toISOString().replace('T', ' ').replace('Z', '')  }}
+                </td>
+                <td>
+                    {{ line.report_entry.get_event().magnitude | eround:0.1 }}
+                </td>
+                <td>
+                    {{ line.report_entry.get_event().depth* 0.001 | eround:(line.report_entry.get_event().depth*0.001*0.1) }}
+                </td>
+                <td>
+                    {{ line.report_entry.get_solution_type() }}
+                </td>
+                <td>
+                    <a href="#/{{ line.report_entry.path }}/">{{ line.report_entry.problem_name }}</a>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <a href="/grond-reports.tar.gz" class="btn btn-primary" role="button">Download .tar.gz</a>
+
+</div>
