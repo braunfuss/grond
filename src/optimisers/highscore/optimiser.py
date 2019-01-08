@@ -6,9 +6,9 @@ import logging
 import time
 import numpy as num
 from collections import OrderedDict
-
 from pyrocko.guts import StringChoice, Int, Float, Object, List
 from pyrocko.guts_array import Array
+from shapely.geometry import Polygon
 
 from grond.meta import GrondError, Forbidden
 from grond.problems.base import ModelHistory
@@ -18,7 +18,7 @@ from grond.optimisers.base import Optimiser, OptimiserConfig, BadProblem, \
 guts_prefix = 'grond'
 
 logger = logging.getLogger('grond.optimisers.highscore.optimiser')
-
+d2r = math.pi / 180.
 
 def excentricity_compensated_probabilities(xs, sbx, factor):
     inonflat = num.where(sbx != 0.0)[0]
@@ -103,6 +103,25 @@ class UniformSamplerPhase(SamplerPhase):
 
     def get_raw_sample(self, problem, iiter, chains):
         xbounds = problem.get_parameter_bounds()
+        intersect = True
+        while intersect is True:
+            pars = problem.random_uniform(xbounds)
+            nsources = 2
+            sources = []
+            if nsources == 2:
+                for i in range(nsources):
+                    source = problem.get_source(pars, i)
+                    sources.append(source)
+            src1 = sources[0].outline('xy')
+            src2 = sources[1].outline('xy')
+            p1 = Polygon(src1)
+            p2 = Polygon(src2)
+            if not p1.intersects(p2):
+                intersect = False
+            else:
+                intersect = True
+                print('intersection, uniform phase redraw')
+
         return problem.random_uniform(xbounds)
 
 
@@ -144,87 +163,104 @@ class DirectedSamplerPhase(SamplerPhase):
         npar = problem.nparameters
         pnames = problem.parameter_names
         xbounds = problem.get_parameter_bounds()
-
+        intersect = True
         ichain_choice = num.argmin(chains.accept_sum)
 
-        if self.starting_point == 'excentricity_compensated':
-            models = chains.models(ichain_choice)
-            ilink_choice = excentricity_compensated_choice(
-                models,
-                chains.standard_deviation_models(
-                    ichain_choice, self.standard_deviation_estimator),
-                2.)
+        while intersect is True:
+            if self.starting_point == 'excentricity_compensated':
+                models = chains.models(ichain_choice)
+                ilink_choice = excentricity_compensated_choice(
+                    models,
+                    chains.standard_deviation_models(
+                        ichain_choice, self.standard_deviation_estimator),
+                    2.)
 
-            xchoice = chains.model(ichain_choice, ilink_choice)
+                xchoice = chains.model(ichain_choice, ilink_choice)
 
-        elif self.starting_point == 'random':
-            ilink_choice = num.random.randint(0, chains.nlinks)
-            xchoice = chains.model(ichain_choice, ilink_choice)
+            elif self.starting_point == 'random':
+                ilink_choice = num.random.randint(0, chains.nlinks)
+                xchoice = chains.model(ichain_choice, ilink_choice)
 
-        elif self.starting_point == 'mean':
-            xchoice = chains.mean_model(ichain_choice)
+            elif self.starting_point == 'mean':
+                xchoice = chains.mean_model(ichain_choice)
 
-        else:
-            assert False, 'invalid starting_point choice: %s' % (
-                self.starting_point)
+            else:
+                assert False, 'invalid starting_point choice: %s' % (
+                    self.starting_point)
 
-        ntries_sample = 0
-        if self.sampler_distribution == 'normal':
-            x = num.zeros(npar, dtype=num.float)
-            sx = chains.standard_deviation_models(
-                ichain_choice, self.standard_deviation_estimator)
+            ntries_sample = 0
+            if self.sampler_distribution == 'normal':
+                x = num.zeros(npar, dtype=num.float)
+                sx = chains.standard_deviation_models(
+                    ichain_choice, self.standard_deviation_estimator)
 
-            for ipar in range(npar):
-                ntries = 0
+                for ipar in range(npar):
+                    ntries = 0
+                    while True:
+                        if sx[ipar] > 0.:
+                            v = num.random.normal(
+                                xchoice[ipar],
+                                factor*sx[ipar])
+                        else:
+                            v = xchoice[ipar]
+
+                        if xbounds[ipar, 0] <= v and \
+                                v <= xbounds[ipar, 1]:
+
+                            break
+
+                        if ntries > self.ntries_sample_limit:
+                            raise GrondError(
+                                'failed to produce a suitable '
+                                'candidate sample from normal '
+                                'distribution')
+
+                        ntries += 1
+
+                    x[ipar] = v
+
+            elif self.sampler_distribution == 'multivariate_normal':
+                ok_mask_sum = num.zeros(npar, dtype=num.int)
                 while True:
-                    if sx[ipar] > 0.:
-                        v = num.random.normal(
-                            xchoice[ipar],
-                            factor*sx[ipar])
-                    else:
-                        v = xchoice[ipar]
+                    ntries_sample += 1
+                    xcandi = num.random.multivariate_normal(
+                        xchoice, factor**2 * chains.cov(ichain_choice))
 
-                    if xbounds[ipar, 0] <= v and \
-                            v <= xbounds[ipar, 1]:
+                    ok_mask = num.logical_and(
+                        xbounds[:, 0] <= xcandi, xcandi <= xbounds[:, 1])
 
+                    if num.all(ok_mask):
                         break
 
-                    if ntries > self.ntries_sample_limit:
+                    ok_mask_sum += ok_mask
+
+                    if ntries_sample > self.ntries_sample_limit:
                         raise GrondError(
-                            'failed to produce a suitable '
-                            'candidate sample from normal '
-                            'distribution')
+                            'failed to produce a suitable candidate '
+                            'sample from multivariate normal '
+                            'distribution, (%s)' %
+                            ', '.join('%s:%i' % xx for xx in
+                                      zip(pnames, ok_mask_sum)))
 
-                    ntries += 1
+                x = xcandi
+            pars = x
+            nsources = 2
+            sources = []
+            if nsources == 2:
+                for i in range(nsources):
+                    source = problem.get_source(pars, i)
+                    sources.append(source)
+            src1 = sources[0].outline('xy')
+            src2 = sources[1].outline('xy')
+            p1 = Polygon(src1)
+            p2 = Polygon(src2)
+            if not p1.intersects(p2):
+                intersect = False
+            else:
+                intersect = True
+                print('intersection, directed phase redraw')
 
-                x[ipar] = v
-
-        elif self.sampler_distribution == 'multivariate_normal':
-            ok_mask_sum = num.zeros(npar, dtype=num.int)
-            while True:
-                ntries_sample += 1
-                xcandi = num.random.multivariate_normal(
-                    xchoice, factor**2 * chains.cov(ichain_choice))
-
-                ok_mask = num.logical_and(
-                    xbounds[:, 0] <= xcandi, xcandi <= xbounds[:, 1])
-
-                if num.all(ok_mask):
-                    break
-
-                ok_mask_sum += ok_mask
-
-                if ntries_sample > self.ntries_sample_limit:
-                    raise GrondError(
-                        'failed to produce a suitable candidate '
-                        'sample from multivariate normal '
-                        'distribution, (%s)' %
-                        ', '.join('%s:%i' % xx for xx in
-                                  zip(pnames, ok_mask_sum)))
-
-            x = xcandi
-
-        return x
+            return x
 
 
 def make_bayesian_weights(nbootstrap, nmisfits,
