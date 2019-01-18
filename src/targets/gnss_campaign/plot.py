@@ -5,7 +5,7 @@ from pyrocko.model import gnss
 from pyrocko.plot import automap
 from grond.plot.config import PlotConfig
 from grond.plot.collection import PlotItem
-from grond.problems import CMTProblem, RectangularProblem
+from grond.problems import CMTProblem, RectangularProblem, MultiRectangularProblem
 
 import copy
 from pyrocko.guts import Tuple, Float, Bool
@@ -154,7 +154,7 @@ class GNSSTargetMisfitPlot(PlotConfig):
                     M=True,
                     *m.jxyr)
 
-            elif isinstance(problem, RectangularProblem):
+            elif isinstance(problem, MultiRectangularProblem):
                 m.gmt.psxy(
                     in_rows=source1.outline(cs='lonlat'),
                     L='+p2p,black',

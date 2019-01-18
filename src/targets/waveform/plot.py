@@ -153,7 +153,7 @@ class CheckWaveformsPlot(PlotConfig):
             for _ in range(self.n_random_synthetics):
                 x = problem.get_random_model()
                 sources.append(problem.get_source(x, 0))
-                sources.append(problem.get_source(x, 1))
+                sources.append(problem.get_source(x, 1)) #should be i (index of nsources) instead of 1
                 results = problem.evaluate(x)
                 results_list.append(results)
 
@@ -178,7 +178,7 @@ class CheckWaveformsPlot(PlotConfig):
                     yield item, fig
 
     def draw_figure(self, sources, target, results):
-        t0_mean = num.mean([s.time for s in sources])
+        t0_mean = num.min([s.time for s in sources])
 
         # distances = [
         #    s.distance_to(target) for s in sources]

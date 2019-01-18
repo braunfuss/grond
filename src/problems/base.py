@@ -20,6 +20,7 @@ from ..meta import ADict, Parameter, GrondError, xjoin, Forbidden
 from ..targets import MisfitResult, MisfitTarget, TargetGroup, \
     WaveformMisfitTarget, SatelliteMisfitTarget, GNSSCampaignMisfitTarget
 
+from grond.version import __version__
 
 guts_prefix = 'grond'
 logger = logging.getLogger('grond.problems.base')
@@ -84,7 +85,8 @@ class CombiSource(gf.Source):
             ds = sf.discretize_basesource(store, target)
             ds.m6s *= sf.get_factor()
             dsources.append(ds)
-        dsources[1].times=dsources[1].times-tdiff
+        dsources[1].times = dsources[1].times - tdiff
+
         return gf.DiscretizedMTSource.combine(dsources)
 
 
@@ -119,9 +121,13 @@ class Problem(Object):
     base_source = gf.Source.T(optional=True)
     targets = List.T(MisfitTarget.T())
     target_groups = List.T(TargetGroup.T())
+    grond_version = String.T(optional=True)
 
     def __init__(self, **kwargs):
         Object.__init__(self, **kwargs)
+        
+        if self.grond_version is None:
+            self.grond_version = __version__
 
         self._target_weights = None
         self._engine = None

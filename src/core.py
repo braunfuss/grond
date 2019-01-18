@@ -26,6 +26,8 @@ from .config import read_config
 from .environment import Environment
 from .monitor import GrondMonitor
 
+from grond.problems import MultiRectangularProblem
+
 logger = logging.getLogger('grond.core')
 guts_prefix = 'grond'
 
@@ -171,8 +173,10 @@ def forward(rundir_or_config_path, event_names):
     for (problem, x) in payload:
         ds.empty_cache()
         results = problem.evaluate(x)
-
-        event = problem.get_source(x).pyrocko_event()
+        if isinstance(problem, MultiRectangularProblem):
+            event = problem.get_source(x,0).pyrocko_event()
+        else:
+            event = problem.get_source(x).pyrocko_event()
         events.append(event)
 
         for result in results:
