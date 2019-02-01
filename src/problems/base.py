@@ -528,18 +528,14 @@ class Problem(Object):
 
         return self._family_mask
 
-    def evaluate(self, x, mask=None, result_mode='full',
-                 targets=None, nsources=None):
+    def evaluate(self, x, nsources, mask=None, result_mode='full',
+                 targets=None):
         patches = []
-        nsources = 2 # for testing
         outlines = []
-        if nsources == 2: #if self.nsources:
-            for i in range(nsources):
-                source = self.get_source(x, i)
-                patches.append(source)
-                outlines.append(source.outline())
-        else:
-                source = self.get_source(x)
+        for i in range(nsources):
+            source = self.get_source(x, i)
+            patches.append(source)
+            outlines.append(source.outline())
 
         engine = self.get_engine()
         sources = CombiSource(subsources=patches)
@@ -601,8 +597,8 @@ class Problem(Object):
 
         return results
 
-    def misfits(self, x, mask=None):
-        results = self.evaluate(x, mask=mask, result_mode='sparse')
+    def misfits(self, x, nsources, mask=None):
+        results = self.evaluate(x, nsources, mask=mask, result_mode='sparse')
         misfits = num.full((self.nmisfits, 2), num.nan)
 
         imisfit = 0

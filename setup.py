@@ -114,6 +114,7 @@ setup(
         'grond.problems.multirectangular',
         'grond.optimisers',
         'grond.optimisers.highscore',
+        'grond.optimisers.transD',
         'grond.analysers',
         'grond.analysers.noise_analyser',
         'grond.analysers.target_balancing',
