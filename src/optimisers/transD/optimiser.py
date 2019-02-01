@@ -19,6 +19,7 @@ from pyrocko import moment_tensor as mt
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 from scipy import stats, signal
+from scipy.interpolate import RegularGridInterpolator
 
 guts_prefix = 'grond'
 
@@ -165,8 +166,10 @@ class UniformSamplerPhase(SamplerPhase):
 
 
 class GuidedSamplerPhase(SamplerPhase):
+    grid_sampling = Float.T(
+        default=2000,
+        help='sampling of the grid for transD in [m]')
 
-    nsources = 2
     bp_input_grid_lf = None
     bp_input_grid_hf = None
     grad_input_grid = None
@@ -249,8 +252,28 @@ class GuidedSamplerPhase(SamplerPhase):
         sources = []
         polygons = []
         xbounds = problem.get_parameter_bounds()
-        nsources_list = [1,2]
+        es_min = []
+        es_max = []
+        ns_min = []
+        ns_max = []
+
+        nsources_list = [1, 2]
         nsources = num.random.choice(nsources_list, 1)[0]
+        for i in range(nsources):
+            es_min.append(xbounds[0+12*i, 0])
+            es_max.append(xbounds[0+12*i, 1])
+            ns_min.append(xbounds[1+12*i, 0])
+            ns_max.append(xbounds[1+12*i, 1])
+
+        es_min = num.min(es_min)
+        es_max = num.max(es_max)
+        ns_min = num.min(ns_min)
+        ns_max = num.max(ns_max)
+
+        grid_x = num.arange(es_min, es_max, 2000)
+        grid_y = num.arange(ns_min, ns_max, 2000)
+        es_sampling, ns_sampling = num.meshgrid(grid_x, grid_y)
+
         for i in range(nsources):
             check_bounds = True
             check_bounds_lf = True
@@ -271,14 +294,16 @@ class GuidedSamplerPhase(SamplerPhase):
                                                      self.bp_input_grid_lf)
                 east_shift = es_list[sampled_index_xy]
                 north_shift = ns_list[sampled_index_xy]
+
+                east_shift_index  = num.nanargmin((es_sampling[0]-east_shift)**2)
+                north_shift_index  = num.nanargmin((ns_sampling[0]-north_shift)**2)
+                east_shift = es_sampling[0,east_shift_index]
+                north_shift = ns_sampling[0,north_shift_index]
                 if east_shift >= xbounds[0+12*i, 0] and east_shift <= xbounds[0+12*i, 1] and\
                    north_shift >= xbounds[1+12*i, 0] and north_shift <= xbounds[1+12*i, 1]:
                     check_bounds_lf = False
                     model[1+12*i] = north_shift
                     model[0+12*i] = east_shift
-                else:
-                    print(east_shift, xbounds[0+12*i, 0], xbounds[0+12*i, 1])
-                    print(north_shift, xbounds[1+12*i, 0], xbounds[1+12*i, 1])
 
                 if source.nucleation_x is not None:
                     check_bounds_hf = True
