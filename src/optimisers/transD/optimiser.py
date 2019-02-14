@@ -131,13 +131,13 @@ class SamplerPhase(Object):
     def get_raw_sample(self, problem, iiter, chains):
         raise NotImplementedError
 
-    def get_sample(self, problem, iiter, chains):
+    def get_sample(self, problem, iiter, chains, misfits):
         assert 0 <= iiter < self.niterations
 
         ntries_preconstrain = 0
         for ntries_preconstrain in range(self.ntries_preconstrain_limit):
             try:
-                sample = self.get_raw_sample(problem, iiter, chains)
+                sample = self.get_raw_sample(problem, iiter, chains, misfits)
                 sample.preconstrain(problem)
                 return sample
 
@@ -174,16 +174,22 @@ class GuidedSamplerPhase(SamplerPhase):
     bp_input_grid_hf = None
     grad_input_grid = None
 
+    aic_history = []
+    nsources_history = []
+    nsources = None
+
     try:
         bp_input_grid_lf = num.loadtxt('semb_lf.ASC', unpack=True)
     except:
         pass
     try:
-        bp_input_grid_hf = num.loadtxt('semb_hf.ASC', unpack=True)
+        bp_input_grid_hf = num.loadtxt('semb_lf.ASC', unpack=True)
+        bp_input_grid_hf = None
     except:
         pass
     try:
         grad_input_grid = num.loadtxt('grad.ASC', unpack=True)
+        grad_input_grid = None
     except:
         pass
 
@@ -246,20 +252,52 @@ class GuidedSamplerPhase(SamplerPhase):
         points[:, 2] += source.depth
         return points[1:2, 1], points[2:3, 0]
 
-    def get_raw_sample(self, problem, iiter, chains):
-        check_bounds_hf = False
+    def aic(self, misfits, nparas):
 
-        sources = []
-        polygons = []
-        xbounds = problem.get_parameter_bounds()
+        sig = 0.03
+        res = (num.nanmean(misfits))/sig
+        Norm = -(num.log(sig)+0.5*num.log(2*num.pi))
+        logLLK = Norm-0.5*(res*res).sum()
+        aic = (2.*(nparas))-2*logLLK
+        return aic
+
+    def birth_death(self):
+        aic_current = self.aic_history[-1]
+        nsources_current = self.nsources_history[-1]
+        for i, hs in enumerate(reversed(self.nsources_history)):
+            if hs is not nsources_current:
+                break
+        choice = num.random.uniform(0, 2)+(aic_current/self.aic_history[i])
+        if choice < 1: #death
+            if nsources_current>1:
+                nsources = nsources_current-1
+            else:
+                nsources = nsources_current
+        elif choice > 2: #birth
+            nsources = nsources_current+1
+        else:
+            nsources = nsources_current
+        print('number of sources')
+        print(nsources)
+        return nsources
+
+    def get_raw_sample(self, problem, iiter, chains, misfits):
+        check_bounds_hf = False
         es_min = []
         es_max = []
         ns_min = []
         ns_max = []
 
-        nsources_list = [1, 2]
-        nsources = num.random.choice(nsources_list, 1)[0]
-        for i in range(nsources):
+        xbounds = problem.get_parameter_bounds()
+        if misfits is None:
+            nsources_list = [1, 2]
+            self.nsources = num.random.choice(nsources_list, 1)[0]
+        else:
+            gms = problem.combine_misfits(misfits)
+            self.aic_history.append(self.aic(misfits, len(xbounds)))
+            self.nsources_history.append(self.nsources)
+            self.nsources = self.birth_death()
+        for i in range(self.nsources):
             es_min.append(xbounds[0+12*i, 0])
             es_max.append(xbounds[0+12*i, 1])
             ns_min.append(xbounds[1+12*i, 0])
@@ -274,21 +312,26 @@ class GuidedSamplerPhase(SamplerPhase):
         grid_y = num.arange(ns_min, ns_max, 2000)
         es_sampling, ns_sampling = num.meshgrid(grid_x, grid_y)
 
-        for i in range(nsources):
-            check_bounds = True
-            check_bounds_lf = True
-            check_bounds_hf = False
-            while check_bounds is True:
-                sampled_index_xy = []
-                if self.bp_input_grid_lf is not None:
-                        sampled_index_xy.append(self.prior_bp_loc.rvs())
-                if self.grad_input_grid is not None:
-                        sampled_index_xy.append(self.prior_grad_loc.rvs(),
-                                                size=5)
-                sampled_index_xy = num.random.choice(sampled_index_xy, 1)[0]
+        check_bounds = True
+        check_bounds_lf = False #for debug
+        check_bounds_hf = False
+        while check_bounds is True:
+
+            sources = []
+            polygons = []
+            sampled_index_xy = []
+            if self.bp_input_grid_lf is not None:
+                    sampled_index_xy.append(self.prior_bp_loc.rvs())
+            if self.grad_input_grid is not None:
+                    sampled_index_xy.append(self.prior_grad_loc.rvs(),
+                                            size=5)
+            sampled_index_xy = num.random.choice(sampled_index_xy, 1)[0]
+            for i in range(self.nsources):
+
                 model = problem.random_uniform(xbounds, self.get_rstate())
                 source = problem.get_source(model, i)
                 sources.append(source)
+
                 polygons.append(Polygon(source.outline('xy')))
                 es_list, ns_list = self.get_distance(source,
                                                      self.bp_input_grid_lf)
@@ -305,7 +348,8 @@ class GuidedSamplerPhase(SamplerPhase):
                     model[1+12*i] = north_shift
                     model[0+12*i] = east_shift
 
-                if source.nucleation_x is not None:
+                if source.nucleation_x is not None and\
+                   self.bp_input_grid_hf is not None:
                     check_bounds_hf = True
                     source = problem.get_source(model, i)
                     sampled_index_nuc = self.prior_bp_nuc.rvs()
@@ -331,22 +375,38 @@ class GuidedSamplerPhase(SamplerPhase):
                         model[9+12*i] = nuc_x
                         model[10+12*i] = nuc_y
                         check_bounds_hf = False
-                if nsources is not 1:
-                    for k in range(len(polygons)):
-                        for j in range(len(polygons)):
-                            p1 = polygons[k]
-                            p2 = polygons[j]
-                            if not p1.intersects(p2) or p1 == p2:
-                                intersect = False
-                            else:
-                                intersect = True
-                else:
-                    intersect = False
+                        print('bounds')
+            if self.nsources is not 1:
+                depths = []
+                for src in sources:
+                    depths.append(src.depth)
+                for k in range(len(polygons)):
+                    for j in range(len(polygons)):
+                        p1 = polygons[k]
+                        p2 = polygons[j]
+                        if not p1.intersects(p2) or p1 == p2:
+                            intersect = False
+                        else:
+                            intersect = True
 
-                if check_bounds_hf is False and check_bounds_lf is False\
-                   and intersect is False:
-                    check_bounds = False
-        return Sample(model=model, nsources=nsources)
+
+                            for src in sources:
+                                print(src)
+                            print(stop)
+            else:
+                intersect = False
+
+            if check_bounds_hf is False and check_bounds_lf is False\
+               and intersect is False:
+                check_bounds = False
+            else:
+                print('redraw')
+                print(self.nsources)
+                print(check_bounds_hf)
+                print(check_bounds_lf)
+                print(intersect)
+
+        return Sample(model=model, nsources=self.nsources)
 
 
 class DirectedSamplerPhase(SamplerPhase):
@@ -787,11 +847,12 @@ class transDOptimiser(Optimiser):
         niter = self.niterations
         isbad_mask = None
         self._tlog_last = 0
+        misfits = None
         for iiter in range(niter):
             iphase, phase, iiter_phase = self.get_sampler_phase(iiter)
             self.log_progress(problem, iiter, niter, phase, iiter_phase)
 
-            sample = phase.get_sample(problem, iiter_phase, chains)
+            sample = phase.get_sample(problem, iiter_phase, chains, misfits)
             sample.iphase = iphase
 
             if isbad_mask is not None and num.any(isbad_mask):
