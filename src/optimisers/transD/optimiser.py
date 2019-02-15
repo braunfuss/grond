@@ -314,6 +314,9 @@ class GuidedSamplerPhase(SamplerPhase):
         return nsources
 
     def get_raw_sample(self, problem, iiter, chains, misfits):
+
+        rstate = self.get_rstate()
+
         check_bounds_hf = False
         es_min = []
         es_max = []
@@ -323,7 +326,7 @@ class GuidedSamplerPhase(SamplerPhase):
         xbounds = problem.get_parameter_bounds()
         if misfits is None:
             nsources_list = [1, 2]
-            self.nsources = num.random.choice(nsources_list, 1)[0]
+            self.nsources = rstate.choice(nsources_list, 1)[0]
         else:
             gms = problem.combine_misfits(misfits)
             self.aic_history.append(self.aic(misfits, len(xbounds)))
@@ -452,8 +455,11 @@ class GuidedSamplerPhase(SamplerPhase):
                         tdiff_bounds = time_bounds_high[il] - time_bounds_low[il]
                         low = time_bounds_low[il]+tdiff_abs
                         high = time_bounds_high[il]-tdiff_abs
-                        low_rel = tdiff_rel/self.nsources
-                        high_rel = tdiff_rel/self.nsources
+                        low_rel = tdiff_rel
+                        high_rel = tdiff_rel
+
+                        src.time = rstate.uniform(low,
+                                                  high)
 
                 if any(sources.count(x) > 1 for x in sources):
                     intersect = True
