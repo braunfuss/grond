@@ -16,7 +16,7 @@ from grond.problems.base import ModelHistory
 from grond.optimisers.base import Optimiser, OptimiserConfig, BadProblem, \
     OptimiserStatus
 from pyrocko import moment_tensor as mt
-from shapely.geometry import Point
+from shapely.geometry import Point, LineString
 from shapely.geometry.polygon import Polygon
 from scipy import stats, signal
 from scipy.interpolate import RegularGridInterpolator
@@ -313,22 +313,21 @@ class GuidedSamplerPhase(SamplerPhase):
         es_sampling, ns_sampling = num.meshgrid(grid_x, grid_y)
 
         check_bounds = True
-        check_bounds_lf = False #for debug
+        check_bounds_lf = True
         check_bounds_hf = False
         while check_bounds is True:
-
+            model = problem.random_uniform(xbounds, self.get_rstate())
             sources = []
             polygons = []
-            sampled_index_xy = []
-            if self.bp_input_grid_lf is not None:
-                    sampled_index_xy.append(self.prior_bp_loc.rvs())
-            if self.grad_input_grid is not None:
-                    sampled_index_xy.append(self.prior_grad_loc.rvs(),
-                                            size=5)
-            sampled_index_xy = num.random.choice(sampled_index_xy, 1)[0]
-            for i in range(self.nsources):
 
-                model = problem.random_uniform(xbounds, self.get_rstate())
+            for i in range(self.nsources):
+                sampled_index_xy = []
+                if self.bp_input_grid_lf is not None:
+                        sampled_index_xy.append(self.prior_bp_loc.rvs())
+                if self.grad_input_grid is not None:
+                        sampled_index_xy.append(self.prior_grad_loc.rvs(),
+                                                size=5)
+                sampled_index_xy = num.random.choice(sampled_index_xy, 1)[0]
                 source = problem.get_source(model, i)
                 sources.append(source)
 
@@ -338,12 +337,16 @@ class GuidedSamplerPhase(SamplerPhase):
                 east_shift = es_list[sampled_index_xy]
                 north_shift = ns_list[sampled_index_xy]
 
-                east_shift_index  = num.nanargmin((es_sampling[0]-east_shift)**2)
-                north_shift_index  = num.nanargmin((ns_sampling[0]-north_shift)**2)
-                east_shift = es_sampling[0,east_shift_index]
-                north_shift = ns_sampling[0,north_shift_index]
-                if east_shift >= xbounds[0+12*i, 0] and east_shift <= xbounds[0+12*i, 1] and\
-                   north_shift >= xbounds[1+12*i, 0] and north_shift <= xbounds[1+12*i, 1]:
+                east_shift_index = num.nanargmin((es_sampling[0]
+                                                  - east_shift)**2)
+                north_shift_index = num.nanargmin((ns_sampling[0]
+                                                   - north_shift)**2)
+                east_shift = es_sampling[0, east_shift_index]
+                north_shift = ns_sampling[0, north_shift_index]
+                if east_shift >= xbounds[0+12*i, 0] and\
+                   east_shift <= xbounds[0+12*i, 1] and\
+                   north_shift >= xbounds[1+12*i, 0] and\
+                   north_shift <= xbounds[1+12*i, 1]:
                     check_bounds_lf = False
                     model[1+12*i] = north_shift
                     model[0+12*i] = east_shift
@@ -368,18 +371,24 @@ class GuidedSamplerPhase(SamplerPhase):
                                        (outline[3, 0], outline[3, 1])])
                     if polygon.contains(point) is True or \
                        abs(polygon.exterior.distance(point)) < 20.:
-                        distx = source.east_shift+dist*num.cos(d2r*source.strike)
-                        disty = source.north_shift+dist*num.sin(d2r*source.strike)
+                        distx = source.east_shift+dist*num.cos(d2r*
+                                                               source.strike)
+                        disty = source.north_shift+dist*num.sin(d2r*
+                                                                source.strike)
                         nuc_x = distx/source.length
                         nuc_y = disty/source.width
                         model[9+12*i] = nuc_x
                         model[10+12*i] = nuc_y
                         check_bounds_hf = False
-                        print('bounds')
             if self.nsources is not 1:
-                depths = []
+                if any(sources.count(x) > 1 for x in sources):
+                    intersect = True
+                    break
+                depths_max = []
+                depths_min = []
                 for src in sources:
-                    depths.append(src.depth)
+                    depths_max.append(num.max(src.outline()[:, 2]))
+                    depths_min.append(num.min(src.outline()[:, 2]))
                 for k in range(len(polygons)):
                     for j in range(len(polygons)):
                         p1 = polygons[k]
@@ -387,12 +396,18 @@ class GuidedSamplerPhase(SamplerPhase):
                         if not p1.intersects(p2) or p1 == p2:
                             intersect = False
                         else:
-                            intersect = True
-
-
-                            for src in sources:
-                                print(src)
-                            print(stop)
+                            line_1 = [(1.0, depths_min[k]),
+                                      (1.0, depths_max[k])]
+                            line_2 = [(1.0, depths_min[j]),
+                                      (1.0, depths_max[j])]
+                            line1 = LineString(line_1)
+                            line2 = LineString(line_2)
+                            intersection_depth = line1.intersection(line2)
+                            if intersection_depth is False:
+                                intersect = False
+                            else:
+                                intersect = True
+                                break
             else:
                 intersect = False
 
@@ -401,11 +416,7 @@ class GuidedSamplerPhase(SamplerPhase):
                 check_bounds = False
             else:
                 print('redraw')
-                print(self.nsources)
-                print(check_bounds_hf)
-                print(check_bounds_lf)
-                print(intersect)
-
+                print(check_bounds_lf, check_bounds_hf, intersect)
         return Sample(model=model, nsources=self.nsources)
 
 

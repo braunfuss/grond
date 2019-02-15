@@ -77,7 +77,7 @@ class CombiSource(gf.Source):
     def discretize_basesource(self, store, target=None):
 
         dsources = []
-        t0 = self.subsources[0].time
+        t0 = min(self.subsources[:].time)
         for sf in self.subsources:
             ds = sf.discretize_basesource(store, target)
             ds.m6s *= sf.get_factor()
