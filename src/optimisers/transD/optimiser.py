@@ -168,7 +168,23 @@ class UniformSamplerPhase(SamplerPhase):
 class GuidedSamplerPhase(SamplerPhase):
     grid_sampling = Float.T(
         default=2000,
+        optional=True,
         help='sampling of the grid for transD in [m]')
+
+    bp_uncertainity_allowance = Float.T(
+        default=2000,
+        optional=True,
+        help='uncertainity of BP results in [m]')
+
+    bp_lf_time_sampling = Float.T(
+        default=10,
+        optional=True,
+        help='sampling of the backprojection lf results in [s]')
+
+    bp_hf_time_sampling = Float.T(
+        default=10,
+        optional=True,
+        help='sampling of the backprojection hf results in [s]')
 
     bp_input_grid_lf = None
     bp_input_grid_hf = None
@@ -180,6 +196,11 @@ class GuidedSamplerPhase(SamplerPhase):
 
     try:
         bp_input_grid_lf = num.loadtxt('semb_lf.ASC', unpack=True)
+    except:
+        pass
+    try:
+        bp_input_grid_timecum_lf = num.loadtxt('semb_timecum.ASC', unpack=True)
+        bp_input_grid_timemin_lf = num.loadtxt('semb_timemin.ASC', unpack=True)
     except:
         pass
     try:
@@ -199,6 +220,16 @@ class GuidedSamplerPhase(SamplerPhase):
         normed_grad_index_lf = grad/num.linalg.norm(grad, ord=1)
         xk = num.arange(grad_index_shape_lf[0])
         prior_grad_loc = stats.rv_discrete(name='prior_grad_loc',
+                                           values=(xk, normed_grad_index_lf),
+                                           shapes='m,n')
+
+    if bp_input_grid_timemin_lf is not None:
+        timemin = bp_input_grid_timemin_lf[2]
+        timecum = bp_input_grid_timecum_lf[2]
+        timemin_shape_lf = num.shape(timemin)
+        xk = num.arange(timemin_shape_lf)
+        normed_grad_index_lf = grad/num.linalg.norm(grad, ord=1)
+        prior_bp_time = stats.rv_discrete(name='prior_grad_loc',
                                            values=(xk, normed_grad_index_lf),
                                            shapes='m,n')
 
@@ -259,7 +290,8 @@ class GuidedSamplerPhase(SamplerPhase):
         Norm = -(num.log(sig)+0.5*num.log(2*num.pi))
         logLLK = Norm-0.5*(res*res).sum()
         aic = (2.*(nparas))-2*logLLK
-        return aic
+        sbic = -2*logLLK+(num.log(len(misfits))*nparas)
+        return sbic
 
     def birth_death(self):
         aic_current = self.aic_history[-1]
@@ -319,6 +351,9 @@ class GuidedSamplerPhase(SamplerPhase):
             model = problem.random_uniform(xbounds, self.get_rstate())
             sources = []
             polygons = []
+            times_src_mean = []
+            time_bounds_low = []
+            time_bounds_high = []
 
             for i in range(self.nsources):
                 sampled_index_xy = []
@@ -351,10 +386,34 @@ class GuidedSamplerPhase(SamplerPhase):
                     model[1+12*i] = north_shift
                     model[0+12*i] = east_shift
 
+                source = problem.get_source(model, i)
+
+                outline = source.outline()
+                polygon = Polygon([(outline[0, 0], outline[0, 1]),
+                                   (outline[1, 0], outline[1, 1]),
+                                   (outline[2, 0], outline[2, 1]),
+                                   (outline[3, 0], outline[3, 1])])
+
+                if self.bp_input_grid_timecum_lf is not None:
+                    time = model[11+12*i]
+                    time_bounds_low.append(xbounds[11+12*i, 0])
+                    time_bounds_high.append(xbounds[11+12*i, 1])
+                    es_list, ns_list = self.get_distance(source,
+                                                         self.bp_input_grid_timecum_lf)
+
+                    coords_time_counter = 0
+                    times = []
+                    for pe, pn in zip(es_list, ns_list):
+                        point = Point(pn, pe)
+                        if polygon.contains(point) is True or \
+                           abs(polygon.exterior.distance(point)) < self.bp_uncertainity_allowance:
+                            times.append(self.bp_input_grid_timecum_lf[2, coords_time_counter])
+                        coords_time_counter =+ 1
+                    times_src_mean.append(num.mean(times))
+
                 if source.nucleation_x is not None and\
                    self.bp_input_grid_hf is not None:
                     check_bounds_hf = True
-                    source = problem.get_source(model, i)
                     sampled_index_nuc = self.prior_bp_nuc.rvs()
                     es_list, ns_list = self.get_distance(source,
                                                          self.bp_input_grid_hf)
@@ -363,12 +422,9 @@ class GuidedSamplerPhase(SamplerPhase):
                     dist = num.sqrt((source.east_shift-east_shift_nuc)**2 +
                                     (source.north_shift-north_shift_nuc)**2)
 
-                    outline = source.outline()
+
                     point = Point(north_shift_nuc, east_shift_nuc)
-                    polygon = Polygon([(outline[0, 0], outline[0, 1]),
-                                       (outline[1, 0], outline[1, 1]),
-                                       (outline[2, 0], outline[2, 1]),
-                                       (outline[3, 0], outline[3, 1])])
+
                     if polygon.contains(point) is True or \
                        abs(polygon.exterior.distance(point)) < 20.:
                         distx = source.east_shift+dist*num.cos(d2r*
@@ -381,14 +437,28 @@ class GuidedSamplerPhase(SamplerPhase):
                         model[10+12*i] = nuc_y
                         check_bounds_hf = False
             if self.nsources is not 1:
-                if any(sources.count(x) > 1 for x in sources):
-                    intersect = True
-                    break
                 depths_max = []
                 depths_min = []
                 for src in sources:
                     depths_max.append(num.max(src.outline()[:, 2]))
                     depths_min.append(num.min(src.outline()[:, 2]))
+
+                if self.bp_input_grid_timecum_lf is not None:
+                    tmax = num.max(times_src_mean)
+
+                    for il, src in enumerate(sources):
+                        tdiff_rel = tmax - times_src_mean[il]
+                        tdiff_abs = tdiff_rel*self.bp_lf_time_sampling
+                        tdiff_bounds = time_bounds_high[il] - time_bounds_low[il]
+                        low = time_bounds_low[il]+tdiff_abs
+                        high = time_bounds_high[il]-tdiff_abs
+                        low_rel = tdiff_rel/self.nsources
+                        high_rel = tdiff_rel/self.nsources
+
+                if any(sources.count(x) > 1 for x in sources):
+                    intersect = True
+                    break
+
                 for k in range(len(polygons)):
                     for j in range(len(polygons)):
                         p1 = polygons[k]
