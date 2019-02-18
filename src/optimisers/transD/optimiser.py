@@ -186,6 +186,27 @@ class GuidedSamplerPhase(SamplerPhase):
         optional=True,
         help='sampling of the backprojection hf results in [s]')
 
+    bp_lf_north_shift = Float.T(
+        default=0,
+        optional=True,
+        help='Static offset of the LF-BP results (due to depth shift) in [m]')
+
+    bp_lf_east_shift = Float.T(
+        default=0,
+        optional=True,
+        help='Static offset of the LF-BP results (due to depth shift) in [m]')
+
+    bp_hf_north_shift = Float.T(
+        default=0,
+        optional=True,
+        help='Static offset of the HF-BP results (due to depth shift) in [m]')
+
+    bp_hf_east_shift = Float.T(
+        default=0,
+        optional=True,
+        help='Static offset of the HF-BP results (due to depth shift) in [m]')
+
+
     bp_input_grid_lf = None
     bp_input_grid_hf = None
     grad_input_grid = None
@@ -202,6 +223,8 @@ class GuidedSamplerPhase(SamplerPhase):
         bp_input_grid_timecum_lf = num.loadtxt('semb_timecum.ASC', unpack=True)
         bp_input_grid_timemin_lf = num.loadtxt('semb_timemin.ASC', unpack=True)
     except:
+        bp_input_grid_timemin_lf = None
+        bp_input_grid_timecum_lf
         pass
     try:
         bp_input_grid_hf = num.loadtxt('semb_lf.ASC', unpack=True)
@@ -226,12 +249,6 @@ class GuidedSamplerPhase(SamplerPhase):
     if bp_input_grid_timemin_lf is not None:
         timemin = bp_input_grid_timemin_lf[2]
         timecum = bp_input_grid_timecum_lf[2]
-        timemin_shape_lf = num.shape(timemin)
-        xk = num.arange(timemin_shape_lf)
-        normed_grad_index_lf = grad/num.linalg.norm(grad, ord=1)
-        prior_bp_time = stats.rv_discrete(name='prior_grad_loc',
-                                           values=(xk, normed_grad_index_lf),
-                                           shapes='m,n')
 
     if bp_input_grid_lf is not None:
         semb_lf = bp_input_grid_lf[2]
@@ -448,13 +465,19 @@ class GuidedSamplerPhase(SamplerPhase):
 
                 if self.bp_input_grid_timecum_lf is not None:
                     tmax = num.max(times_src_mean)
+                    tmin = num.min(times_src_mean)
 
                     for il, src in enumerate(sources):
-                        tdiff_rel = tmax - times_src_mean[il]
-                        tdiff_abs = tdiff_rel*self.bp_lf_time_sampling
+                        tdiff_rel_max = tmax - times_src_mean[il]
+                        tdiff_rel_min = -(tmin - times_src_mean[il])
+                        tdiff_abs_max = tdiff_rel_max*self.bp_lf_time_sampling
+                        tdiff_abs_min = tdiff_rel_min*self.bp_lf_time_sampling
                         tdiff_bounds = time_bounds_high[il] - time_bounds_low[il]
                         low = time_bounds_low[il]+tdiff_abs
-                        high = time_bounds_high[il]-tdiff_abs
+                        try:
+                            high = time_bounds_high[il]
+                        except:
+                            high = time_bounds_high[il]
                         low_rel = tdiff_rel
                         high_rel = tdiff_rel
 
