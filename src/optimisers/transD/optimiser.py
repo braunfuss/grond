@@ -223,7 +223,7 @@ class GuidedSamplerPhase(SamplerPhase):
         bp_input_grid_timemin_lf = num.loadtxt('semb_timemin.ASC', unpack=True)
     except:
         bp_input_grid_timemin_lf = None
-        bp_input_grid_timecum_lf
+        bp_input_grid_timecum_lf = None
         pass
     try:
         bp_input_grid_hf = num.loadtxt('semb_lf.ASC', unpack=True)
