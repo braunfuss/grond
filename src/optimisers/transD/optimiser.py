@@ -358,6 +358,7 @@ class GuidedSamplerPhase(SamplerPhase):
             self.aic_history.append(self.aic(misfits, len(xbounds)))
             self.nsources_history.append(self.nsources)
             self.nsources = self.birth_death()
+        problem.nsources = self.nsources
         for i in range(self.nsources):
             es_min.append(xbounds[0+12*i, 0])
             es_max.append(xbounds[0+12*i, 1])

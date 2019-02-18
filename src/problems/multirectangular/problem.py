@@ -17,7 +17,7 @@ class MultiRectangularProblemConfig(ProblemConfig):
     ranges = Dict.T(String.T(), gf.Range.T())
     decimation_factor = Int.T(default=1)
     distance_min = Float.T(default=0.)
-    nsources = Int.T(default=1)
+    nsources = Int.T(default=None)
 
     def get_problem(self, event, target_groups, targets):
         base_source = gf.RectangularSource.from_pyrocko_event(
@@ -42,7 +42,7 @@ class MultiRectangularProblemConfig(ProblemConfig):
 
 
 class MultiRectangularProblem(Problem):
-    nsources = 2 #maximum number of sources allowed
+    maxnsources = 4 #maximum number of sources allowed
     for i in range(0, 100):
         if "--nsources="+str(i) in sys.argv:
             nsources = int(i)
@@ -51,6 +51,13 @@ class MultiRectangularProblem(Problem):
 
     problem_parameters = []
     problem_waveform_parameters = []
+    if self.nsources is not None:
+        try:
+            nsources = self.nsources
+        except:
+            nsources = self.nsources
+    else:
+            nsources = maxnsources
 
     for i in range(0, nsources):
         problem_parameters.append(Parameter('north_shift%s' % i,
