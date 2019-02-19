@@ -206,6 +206,11 @@ class GuidedSamplerPhase(SamplerPhase):
         optional=True,
         help='Static offset of the HF-BP results (due to depth shift) in [m]')
 
+    nsources_max = Float.T(
+        default=3,
+        optional=True,
+        help='maximum number of sources allowed')
+
     bp_input_grid_lf = None
     bp_input_grid_hf = None
     grad_input_grid = None
@@ -325,19 +330,28 @@ class GuidedSamplerPhase(SamplerPhase):
         for i, hs in enumerate(reversed(self.nsources_history)):
             if hs is not nsources_current:
                 break
-        choice = num.random.uniform(0, 2)+(aic_current/self.aic_history[i])
-        if choice < 1: #death
-            if nsources_current>1:
-                nsources = nsources_current-1
+
+        inertia = num.random.uniform(0., 1.)
+        if inertia < 0.8:
+            nsources = nsources_current
+        else:
+            choice = num.random.uniform(0, 2)+(aic_current/self.aic_history[i])
+            if nsources_current <= self.nsources_max:
+                choice = choice-1
+            if choice < 1: #death
+                if nsources_current>1:
+                    nsources = nsources_current-1
+                else:
+                    nsources = nsources_current
+            elif choice > 2: #birth
+                nsources = nsources_current+1
+                if nsources < self.nsources_max:
+                    nsources = nsources_current
             else:
                 nsources = nsources_current
-        elif choice > 2: #birth
-            nsources = nsources_current+1
-        else:
-            nsources = nsources_current
-        print('number of sources')
-        print(nsources)
-        return nsources
+            print('number of sources')
+            print(nsources)
+            return nsources
 
     def get_raw_sample(self, problem, iiter, chains, misfits):
 

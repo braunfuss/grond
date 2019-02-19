@@ -42,7 +42,7 @@ class MultiRectangularProblemConfig(ProblemConfig):
 
 
 class MultiRectangularProblem(Problem):
-    nsources = 2 #maximum number of sources allowed
+    nsources = 3 #maximum number of sources allowed
     for i in range(0, 100):
         if "--nsources="+str(i) in sys.argv:
             nsources = int(i)
