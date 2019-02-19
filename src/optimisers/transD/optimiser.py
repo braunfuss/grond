@@ -211,6 +211,12 @@ class GuidedSamplerPhase(SamplerPhase):
         optional=True,
         help='maximum number of sources allowed')
 
+    inertia = Float.T(
+        default=0.1,
+        optional=True,
+        help='probability of birth/death')
+
+
     bp_input_grid_lf = None
     bp_input_grid_hf = None
     grad_input_grid = None
@@ -332,11 +338,11 @@ class GuidedSamplerPhase(SamplerPhase):
                 break
 
         inertia = num.random.uniform(0., 1.)
-        if inertia < 0.8:
+        if inertia < self.inertia:
             nsources = nsources_current
         else:
             choice = num.random.uniform(0, 2)+(aic_current/self.aic_history[i])
-            if nsources_current <= self.nsources_max:
+            if nsources_current >= self.nsources_max:
                 choice = choice-1
             if choice < 1: #death
                 if nsources_current>1:
@@ -345,13 +351,13 @@ class GuidedSamplerPhase(SamplerPhase):
                     nsources = nsources_current
             elif choice > 2: #birth
                 nsources = nsources_current+1
-                if nsources < self.nsources_max:
+                if nsources > self.nsources_max:
                     nsources = nsources_current
             else:
                 nsources = nsources_current
-            print('number of sources')
-            print(nsources)
-            return nsources
+        print('number of sources')
+        print(nsources)
+        return nsources
 
     def get_raw_sample(self, problem, iiter, chains, misfits):
 
