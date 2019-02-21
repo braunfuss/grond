@@ -320,44 +320,6 @@ class GuidedSamplerPhase(SamplerPhase):
         points[:, 2] += source.depth
         return points[1:2, 1], points[2:3, 0]
 
-    def aic(self, misfits, nparas):
-
-        sig = 0.03
-        res = (num.nanmean(misfits))/sig
-        Norm = -(num.log(sig)+0.5*num.log(2*num.pi))
-        logLLK = Norm-0.5*(res*res).sum()
-        aic = (2.*(nparas))-2*logLLK
-        sbic = -2*logLLK+(num.log(len(misfits))*nparas)
-        return sbic
-
-    def birth_death(self):
-        aic_current = self.aic_history[-1]
-        nsources_current = self.nsources_history[-1]
-        for i, hs in enumerate(reversed(self.nsources_history)):
-            if hs is not nsources_current:
-                break
-
-        inertia = num.random.uniform(0., 1.)
-        if inertia < self.inertia:
-            nsources = nsources_current
-        else:
-            choice = num.random.uniform(0, 2)+(aic_current/self.aic_history[i])
-            if nsources_current >= self.nsources_max:
-                choice = choice-1
-            if choice < 1: #death
-                if nsources_current>1:
-                    nsources = nsources_current-1
-                else:
-                    nsources = nsources_current
-            elif choice > 2: #birth
-                nsources = nsources_current+1
-                if nsources > self.nsources_max:
-                    nsources = nsources_current
-            else:
-                nsources = nsources_current
-        print('number of sources')
-        print(nsources)
-        return nsources
 
     def get_raw_sample(self, problem, iiter, chains, misfits):
 
@@ -368,16 +330,9 @@ class GuidedSamplerPhase(SamplerPhase):
         es_max = []
         ns_min = []
         ns_max = []
-
+        self.nsources = 2
         xbounds = problem.get_parameter_bounds()
-        if misfits is None:
-            nsources_list = [1, 2]
-            self.nsources = rstate.choice(nsources_list, 1)[0]
-        else:
-            gms = problem.combine_misfits(misfits)
-            self.aic_history.append(self.aic(misfits, len(xbounds)))
-            self.nsources_history.append(self.nsources)
-            self.nsources = self.birth_death()
+
         for i in range(self.nsources):
             es_min.append(xbounds[0+12*i, 0])
             es_max.append(xbounds[0+12*i, 1])
