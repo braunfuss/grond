@@ -12,7 +12,7 @@ from pyrocko.guts import StringChoice, Int, Float, Object, List, String
 from pyrocko.guts_array import Array
 from pyrocko import orthodrome
 from grond.meta import GrondError, Forbidden, has_get_plot_classes
-from grond.problems.base import ModelHistory
+from grond.problems.base import ModelHistory, ModelHistory1, ModelHistory2
 from grond.optimisers.base import Optimiser, OptimiserConfig, BadProblem, \
     OptimiserStatus
 from pyrocko import moment_tensor as mt
@@ -547,6 +547,7 @@ class GuidedSamplerPhase(SamplerPhase):
             else:
                 print('redraw')
                 print(check_bounds_lf, check_bounds_hf, intersect)
+        model = model[0:13+self.nsegmentations*13]
         return Sample(model=model, nsources=self.nsources), chainss
 
 
@@ -596,12 +597,12 @@ class DirectedSamplerPhase(SamplerPhase):
         rstate = self.get_rstate()
         factor = self.get_scatter_scale_factor(iiter)
         npar = problem.nparameters
+        npar = 13*(nsegmentation+1)
         pnames = problem.parameter_names
         xbounds = problem.get_parameter_bounds()
         chains = chainss[nsegmentation]
         ilink_choice = None
         ichain_choice = num.argmin(chains.accept_sum)
-
         if self.starting_point == 'excentricity_compensated':
             models = chains.models(ichain_choice)
             ilink_choice = excentricity_compensated_choice(
@@ -883,6 +884,261 @@ class Chains(object):
             self._acceptance_history = new_buf
         self._acceptance_history[:, self.nread] = acceptance
 
+class Chains1(object):
+    def __init__(
+            self, problem, history, nchains, nlinks_cap):
+
+        self.problem = problem
+        self.history = history
+        self.nchains = nchains
+        self.nlinks_cap = nlinks_cap
+        self.chains_m = num.zeros(
+            (self.nchains, nlinks_cap), dtype=num.float)
+        self.chains_i = num.zeros(
+            (self.nchains, nlinks_cap), dtype=num.int)
+        self.nlinks = 0
+        self.nread = 0
+        self._nsources = num.zeros(
+            (self.nchains, 1024), dtype=num.bool)
+        self.accept_sum = num.zeros(self.nchains, dtype=num.int)
+        self._acceptance_history = num.zeros(
+            (self.nchains, 1024), dtype=num.bool)
+
+        history.add_listener(self)
+
+    def goto(self, n=None):
+        if n is None:
+            n = self.history.nmodels
+
+        n = min(self.history.nmodels, n)
+
+        assert self.nread <= n
+
+        while self.nread < n:
+            nread = self.nread
+            gbms = self.history.bootstrap_misfits[nread, :]
+
+            self.chains_m[:, self.nlinks] = gbms
+            self.chains_i[:, self.nlinks] = nread
+            nbootstrap = self.chains_m.shape[0]
+
+            self.nlinks += 1
+            chains_m = self.chains_m
+            chains_i = self.chains_i
+
+            for ichain in range(nbootstrap):
+                isort = num.argsort(chains_m[ichain, :self.nlinks])
+                chains_m[ichain, :self.nlinks] = chains_m[ichain, isort]
+                chains_i[ichain, :self.nlinks] = chains_i[ichain, isort]
+
+            if self.nlinks == self.nlinks_cap:
+                accept = (chains_i[:, self.nlinks_cap-1] != nread) \
+                    .astype(num.bool)
+                self.nlinks -= 1
+            else:
+                accept = num.ones(self.nchains, dtype=num.bool)
+
+            self._append_acceptance(accept)
+            self.accept_sum += accept
+            self.nread += 1
+
+    def load(self):
+        return self.goto()
+
+    def extend(self, ioffset, n, models, misfits, sampler_contexts):
+        self.goto(ioffset + n)
+
+    def indices(self, ichain):
+        if ichain is not None:
+            return self.chains_i[ichain, :self.nlinks]
+        else:
+            return self.chains_i[:, :self.nlinks].ravel()
+
+    def models(self, ichain=None):
+        return self.history.models[self.indices(ichain), :]
+
+    def model(self, ichain, ilink):
+        return self.history.models[self.chains_i[ichain, ilink], :]
+
+    def imodel(self, ichain, ilink):
+        return self.chains_i[ichain, ilink]
+
+    def misfits(self, ichain=0):
+        return self.chains_m[ichain, :self.nlinks]
+
+    def misfit(self, ichain, ilink):
+        assert ilink < self.nlinks
+        return self.chains_m[ichain, ilink]
+
+    def mean_model(self, ichain=None):
+        xs = self.models(ichain)
+        return num.mean(xs, axis=0)
+
+    def best_model(self, ichain=0):
+        xs = self.models(ichain)
+        return xs[0]
+
+    def best_model_misfit(self, ichain=0):
+        return self.chains_m[ichain, 0]
+
+    def standard_deviation_models(self, ichain, estimator):
+        if estimator == 'median_density_single_chain':
+            xs = self.models(ichain)
+            return local_std(xs)
+        elif estimator == 'standard_deviation_all_chains':
+            bxs = self.models()
+            return num.std(bxs, axis=0)
+        elif estimator == 'standard_deviation_single_chain':
+            xs = self.models(ichain)
+            return num.std(xs, axis=0)
+        else:
+            assert False, 'invalid standard_deviation_estimator choice'
+
+    def covariance_models(self, ichain):
+        xs = self.models(ichain)
+        return num.cov(xs.T)
+
+    @property
+    def acceptance_history(self):
+        return self._acceptance_history[:, :self.nread]
+
+    def _append_acceptance(self, acceptance):
+        if self.nread >= self._acceptance_history.shape[1]:
+            new_buf = num.zeros(
+                (self.nchains, nextpow2(self.nread+1)), dtype=num.bool)
+            new_buf[:, :self._acceptance_history.shape[1]] = \
+                self._acceptance_history
+            self._acceptance_history = new_buf
+        self._acceptance_history[:, self.nread] = acceptance
+
+
+
+class Chains2(object):
+    def __init__(
+            self, problem, history, nchains, nlinks_cap):
+
+        self.problem = problem
+        self.history = history
+        self.nchains = nchains
+        self.nlinks_cap = nlinks_cap
+        self.chains_m = num.zeros(
+            (self.nchains, nlinks_cap), dtype=num.float)
+        self.chains_i = num.zeros(
+            (self.nchains, nlinks_cap), dtype=num.int)
+        self.nlinks = 0
+        self.nread = 0
+        self._nsources = num.zeros(
+            (self.nchains, 1024), dtype=num.bool)
+        self.accept_sum = num.zeros(self.nchains, dtype=num.int)
+        self._acceptance_history = num.zeros(
+            (self.nchains, 1024), dtype=num.bool)
+
+        history.add_listener(self)
+
+    def goto(self, n=None):
+        if n is None:
+            n = self.history.nmodels
+
+        n = min(self.history.nmodels, n)
+
+        assert self.nread <= n
+
+        while self.nread < n:
+            nread = self.nread
+            gbms = self.history.bootstrap_misfits[nread, :]
+
+            self.chains_m[:, self.nlinks] = gbms
+            self.chains_i[:, self.nlinks] = nread
+            nbootstrap = self.chains_m.shape[0]
+
+            self.nlinks += 1
+            chains_m = self.chains_m
+            chains_i = self.chains_i
+
+            for ichain in range(nbootstrap):
+                isort = num.argsort(chains_m[ichain, :self.nlinks])
+                chains_m[ichain, :self.nlinks] = chains_m[ichain, isort]
+                chains_i[ichain, :self.nlinks] = chains_i[ichain, isort]
+
+            if self.nlinks == self.nlinks_cap:
+                accept = (chains_i[:, self.nlinks_cap-1] != nread) \
+                    .astype(num.bool)
+                self.nlinks -= 1
+            else:
+                accept = num.ones(self.nchains, dtype=num.bool)
+
+            self._append_acceptance(accept)
+            self.accept_sum += accept
+            self.nread += 1
+
+    def load(self):
+        return self.goto()
+
+    def extend(self, ioffset, n, models, misfits, sampler_contexts):
+        self.goto(ioffset + n)
+
+    def indices(self, ichain):
+        if ichain is not None:
+            return self.chains_i[ichain, :self.nlinks]
+        else:
+            return self.chains_i[:, :self.nlinks].ravel()
+
+    def models(self, ichain=None):
+        return self.history.models[self.indices(ichain), :]
+
+    def model(self, ichain, ilink):
+        return self.history.models[self.chains_i[ichain, ilink], :]
+
+    def imodel(self, ichain, ilink):
+        return self.chains_i[ichain, ilink]
+
+    def misfits(self, ichain=0):
+        return self.chains_m[ichain, :self.nlinks]
+
+    def misfit(self, ichain, ilink):
+        assert ilink < self.nlinks
+        return self.chains_m[ichain, ilink]
+
+    def mean_model(self, ichain=None):
+        xs = self.models(ichain)
+        return num.mean(xs, axis=0)
+
+    def best_model(self, ichain=0):
+        xs = self.models(ichain)
+        return xs[0]
+
+    def best_model_misfit(self, ichain=0):
+        return self.chains_m[ichain, 0]
+
+    def standard_deviation_models(self, ichain, estimator):
+        if estimator == 'median_density_single_chain':
+            xs = self.models(ichain)
+            return local_std(xs)
+        elif estimator == 'standard_deviation_all_chains':
+            bxs = self.models()
+            return num.std(bxs, axis=0)
+        elif estimator == 'standard_deviation_single_chain':
+            xs = self.models(ichain)
+            return num.std(xs, axis=0)
+        else:
+            assert False, 'invalid standard_deviation_estimator choice'
+
+    def covariance_models(self, ichain):
+        xs = self.models(ichain)
+        return num.cov(xs.T)
+
+    @property
+    def acceptance_history(self):
+        return self._acceptance_history[:, :self.nread]
+
+    def _append_acceptance(self, acceptance):
+        if self.nread >= self._acceptance_history.shape[1]:
+            new_buf = num.zeros(
+                (self.nchains, nextpow2(self.nread+1)), dtype=num.bool)
+            new_buf[:, :self._acceptance_history.shape[1]] = \
+                self._acceptance_history
+            self._acceptance_history = new_buf
+        self._acceptance_history[:, self.nread] = acceptance
 
 @has_get_plot_classes
 class transDOptimiser(Optimiser):
@@ -1001,6 +1257,23 @@ class transDOptimiser(Optimiser):
             problem, history,
             nchains=self.nchains, nlinks_cap=nlinks_cap)
 
+    def chains1(self, problem, history):
+        nlinks_cap = int(round(
+            self.chain_length_factor * problem.nparameters + 1))
+
+        return Chains1(
+            problem, history,
+            nchains=self.nchains, nlinks_cap=nlinks_cap)
+
+
+    def chains2(self, problem, history):
+        nlinks_cap = int(round(
+            self.chain_length_factor * problem.nparameters + 1))
+
+        return Chains2(
+            problem, history,
+            nchains=self.nchains, nlinks_cap=nlinks_cap)
+
     def get_sampler_phase(self, iiter):
         niter = 0
         for iphase, phase in enumerate(self.sampler_phases):
@@ -1040,15 +1313,27 @@ class transDOptimiser(Optimiser):
             self.dump(filename=op.join(rundir, 'optimiser.yaml'))
         nlinks_nsources = int(round(
             self.nsources_accepted_length_factor * problem.nparameters + 1))
-        history = ModelHistory(problem,
+        history1 = ModelHistory(problem,
                                nchains=self.nchains,
                                path=rundir, mode='w')
-        chains = self.chains(problem, history)
+
+        history2 = ModelHistory1(problem,
+                               nchains=self.nchains,
+                               path=rundir, mode='w')
+        history3 = ModelHistory2(problem,
+                               nchains=self.nchains,
+                               path=rundir, mode='w')
         chainss = []
         nsegmentations = 3
-        for jiter in range(nsegmentations):
-            chainss.append(chains)
+#        for jiter in range(nsegmentations):
+        chains = self.chains(problem, history1)
+        chains1 = self.chains1(problem, history2)
+        chains2 = self.chains2(problem, history3)
+        chainss = [chains, chains1, chains2]
+#            chainss.append(chains)
         #chains_nsources = self.chains_nsources(problem, history)
+
+
         chains_nsources = []
         niter = self.niterations
         isbad_mask = None
@@ -1112,14 +1397,27 @@ class transDOptimiser(Optimiser):
                     raise BadProblem(
                         'Problem %s: all target misfit values are NaN.'
                         % problem.name)
+                if jiter == 0:
 
-                history.append(
-                    sample.model, misfits,
-                    bootstrap_misfits,
-                    sample.pack_context())
+                    history1.append(
+                        sample.model, misfits,
+                        bootstrap_misfits,
+                        sample.pack_context())
+                if jiter == 1:
+                    history2.append(
+                        sample.model, misfits,
+                        bootstrap_misfits,
+                        sample.pack_context())
+                if jiter == 2:
+
+                    history3.append(
+                        sample.model, misfits,
+                        bootstrap_misfits,
+                        sample.pack_context())
         chains_nsources = num.asarray(chains_nsources)
         for chain in chainss:
-            print(chain)
+            print(chain.history.models[-1])
+            print(chain.history.misfits[-1])
         fobj_cum = open(os.path.join('chains_nsources.ASC'),'w')
         for x, y in zip(chains_nsources[:][:,0],chains_nsources[:][:,1]):
             fobj_cum.write('%.2f %.2f\n' % (x,y))
