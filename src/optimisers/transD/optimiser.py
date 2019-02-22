@@ -117,7 +117,9 @@ class SamplerPhase(Object):
     seed = Int.T(
         optional=True,
         help='Random state seed.')
-
+    nsegmentation = Int.T(
+        optional=True,
+        help='Number of nsegmentation combinations for this phase.')
     def __init__(self, *args, **kwargs):
         Object.__init__(self, *args, **kwargs)
         self._rstate = None
@@ -128,18 +130,18 @@ class SamplerPhase(Object):
 
         return self._rstate
 
-    def get_raw_sample(self, problem, iiter, chains):
+    def get_raw_sample(self, problem, iiter, chains, nsegmentation):
         raise NotImplementedError
 
-    def get_sample(self, problem, iiter, chains, misfits):
+    def get_sample(self, problem, iiter, chainss, misfits, nsegmentation):
         assert 0 <= iiter < self.niterations
 
         ntries_preconstrain = 0
         for ntries_preconstrain in range(self.ntries_preconstrain_limit):
             try:
-                sample = self.get_raw_sample(problem, iiter, chains, misfits)
+                sample, chainss = self.get_raw_sample(problem, iiter, chainss, misfits, nsegmentation)
                 sample.preconstrain(problem)
-                return sample
+                return sample, chainss
 
             except Forbidden:
                 pass
@@ -212,7 +214,7 @@ class GuidedSamplerPhase(SamplerPhase):
         help='maximum number of sources allowed')
 
     inertia = Float.T(
-        default=0.1,
+        default=0.05,
         optional=True,
         help='probability of birth/death')
 
@@ -224,17 +226,23 @@ class GuidedSamplerPhase(SamplerPhase):
     aic_history = []
     nsources_history = []
     nsources = None
+    nsegmentation = None
 
     try:
         bp_input_grid_lf = num.loadtxt('semb_lf.ASC', unpack=True)
+        bp_input_grid_lf = None
     except:
         pass
     try:
         bp_input_grid_timecum_lf = num.loadtxt('semb_timecum.ASC', unpack=True)
         bp_input_grid_timemin_lf = num.loadtxt('semb_timemin.ASC', unpack=True)
+        bp_input_sembmaxtime_lf = num.loadtxt('sembmax_0.txt', unpack=True)
+        bp_input_sembmaxtime_hf = num.loadtxt('sembmax_1.txt', unpack=True)
     except:
         bp_input_grid_timemin_lf = None
         bp_input_grid_timecum_lf = None
+        bp_input_sembmaxtime_hf = None
+        bp_input_sembmaxtime_lf = None
         pass
     try:
         bp_input_grid_hf = num.loadtxt('semb_lf.ASC', unpack=True)
@@ -259,6 +267,8 @@ class GuidedSamplerPhase(SamplerPhase):
     if bp_input_grid_timemin_lf is not None:
         timemin = bp_input_grid_timemin_lf[2]
         timecum = bp_input_grid_timecum_lf[2]
+        sembmaxtime_lf = bp_input_sembmaxtime_lf[0]
+        sembmaxtime_hf = bp_input_sembmaxtime_hf[0]
 
     if bp_input_grid_lf is not None:
         semb_lf = bp_input_grid_lf[2]
@@ -328,38 +338,9 @@ class GuidedSamplerPhase(SamplerPhase):
         logLLK = Norm-0.5*(res*res).sum()
         aic = (2.*(nparas))-2*logLLK
         sbic = -2*logLLK+(num.log(len(misfits))*nparas)
-        return sbic
+        return aic
 
-    def birth_death(self):
-        aic_current = self.aic_history[-1]
-        nsources_current = self.nsources_history[-1]
-        for i, hs in enumerate(reversed(self.nsources_history)):
-            if hs is not nsources_current:
-                break
-
-        inertia = num.random.uniform(0., 1.)
-        if inertia < self.inertia:
-            nsources = nsources_current
-        else:
-            choice = num.random.uniform(0, 2)+(aic_current/self.aic_history[i])
-            if nsources_current >= self.nsources_max:
-                choice = choice-1
-            if choice < 1: #death
-                if nsources_current>1:
-                    nsources = nsources_current-1
-                else:
-                    nsources = nsources_current
-            elif choice > 2: #birth
-                nsources = nsources_current+1
-                if nsources > self.nsources_max:
-                    nsources = nsources_current
-            else:
-                nsources = nsources_current
-        print('number of sources')
-        print(nsources)
-        return nsources
-
-    def get_raw_sample(self, problem, iiter, chains, misfits):
+    def get_raw_sample(self, problem, iiter, chainss, misfits, nsegmentations):
 
         rstate = self.get_rstate()
 
@@ -370,19 +351,14 @@ class GuidedSamplerPhase(SamplerPhase):
         ns_max = []
 
         xbounds = problem.get_parameter_bounds()
-        if misfits is None:
-            nsources_list = [1, 2]
-            self.nsources = rstate.choice(nsources_list, 1)[0]
-        else:
-            gms = problem.combine_misfits(misfits)
-            self.aic_history.append(self.aic(misfits, len(xbounds)))
-            self.nsources_history.append(self.nsources)
-            self.nsources = self.birth_death()
+        self.nsegmentations = nsegmentations
+        self.nsources = self.nsegmentations+1
+
         for i in range(self.nsources):
-            es_min.append(xbounds[0+12*i, 0])
-            es_max.append(xbounds[0+12*i, 1])
-            ns_min.append(xbounds[1+12*i, 0])
-            ns_max.append(xbounds[1+12*i, 1])
+            es_min.append(xbounds[0+13*i, 0])
+            es_max.append(xbounds[0+13*i, 1])
+            ns_min.append(xbounds[1+13*i, 0])
+            ns_max.append(xbounds[1+13*i, 1])
 
         es_min = num.min(es_min)
         es_max = num.max(es_max)
@@ -393,8 +369,13 @@ class GuidedSamplerPhase(SamplerPhase):
         grid_y = num.arange(ns_min, ns_max, 2000)
         es_sampling, ns_sampling = num.meshgrid(grid_x, grid_y)
 
+        if self.bp_input_grid_lf is None and self.bp_input_grid_hf is None and\
+           self.grad_input_grid:
+            check_bounds_lf = False
+            check_bounds_hf = False
+
         check_bounds = True
-        check_bounds_lf = True
+        check_bounds_lf = False
         check_bounds_hf = False
         while check_bounds is True:
             model = problem.random_uniform(xbounds, self.get_rstate())
@@ -428,31 +409,27 @@ class GuidedSamplerPhase(SamplerPhase):
                     if sampled is 'LF':
                         sampled_index_xy = self.prior_bp_loc.rvs()
 
-                source = problem.get_source(model, i)
-                sources.append(source)
+                    es_list, ns_list = self.get_distance(source,
+                                                         self.bp_input_grid_lf,
+                                                         sampled)
+                    east_shift = es_list[sampled_index_xy]
+                    north_shift = ns_list[sampled_index_xy]
 
-                polygons.append(Polygon(source.outline('xy')))
-                es_list, ns_list = self.get_distance(source,
-                                                     self.bp_input_grid_lf,
-                                                     sampled)
-                east_shift = es_list[sampled_index_xy]
-                north_shift = ns_list[sampled_index_xy]
+                    east_shift_index = num.nanargmin((es_sampling[0]
+                                                      - east_shift)**2)
+                    north_shift_index = num.nanargmin((ns_sampling[0]
+                                                       - north_shift)**2)
+                    east_shift = es_sampling[0, east_shift_index]
+                    north_shift = ns_sampling[0, north_shift_index]
+                    if east_shift >= xbounds[0+13*i, 0] and\
+                       east_shift <= xbounds[0+13*i, 1] and\
+                       north_shift >= xbounds[1+13*i, 0] and\
+                       north_shift <= xbounds[1+13*i, 1]:
+                        check_bounds_lf = False
+                        model[1+13*i+self.nsegmentations*13] = north_shift
+                        model[0+13*i+self.nsegmentations*13] = east_shift
 
-                east_shift_index = num.nanargmin((es_sampling[0]
-                                                  - east_shift)**2)
-                north_shift_index = num.nanargmin((ns_sampling[0]
-                                                   - north_shift)**2)
-                east_shift = es_sampling[0, east_shift_index]
-                north_shift = ns_sampling[0, north_shift_index]
-                if east_shift >= xbounds[0+12*i, 0] and\
-                   east_shift <= xbounds[0+12*i, 1] and\
-                   north_shift >= xbounds[1+12*i, 0] and\
-                   north_shift <= xbounds[1+12*i, 1]:
-                    check_bounds_lf = False
-                    model[1+12*i] = north_shift
-                    model[0+12*i] = east_shift
-
-                source = problem.get_source(model, i)
+                source = problem.get_source(model, i, self.nsegmentations)
 
                 outline = source.outline()
                 polygon = Polygon([(outline[0, 0], outline[0, 1]),
@@ -461,9 +438,9 @@ class GuidedSamplerPhase(SamplerPhase):
                                    (outline[3, 0], outline[3, 1])])
 
                 if self.bp_input_grid_timecum_lf is not None:
-                    time = model[11+12*i]
-                    time_bounds_low.append(xbounds[11+12*i, 0])
-                    time_bounds_high.append(xbounds[11+12*i, 1])
+                    time = model[11+13*i+self.nsegmentations*13]
+                    time_bounds_low.append(xbounds[11+13*i, 0])
+                    time_bounds_high.append(xbounds[11+13*i, 1])
                     es_list, ns_list = self.get_distance(source,
                                        self.bp_input_grid_timecum_lf,
                                        'LF')
@@ -504,9 +481,13 @@ class GuidedSamplerPhase(SamplerPhase):
                                                                 source.strike)
                         nuc_x = distx/source.length
                         nuc_y = disty/source.width
-                        model[9+12*i] = nuc_x
-                        model[10+12*i] = nuc_y
+                        model[9+13*i+self.nsegmentations*13] = nuc_x
+                        model[10+13*i+self.nsegmentations*13] = nuc_y
                         check_bounds_hf = False
+
+                source = problem.get_source(model, i, nsegmentations)
+                sources.append(source)
+                polygons.append(Polygon(source.outline('xy')))
             if self.nsources is not 1:
                 depths_max = []
                 depths_min = []
@@ -566,7 +547,7 @@ class GuidedSamplerPhase(SamplerPhase):
             else:
                 print('redraw')
                 print(check_bounds_lf, check_bounds_hf, intersect)
-        return Sample(model=model, nsources=self.nsources)
+        return Sample(model=model, nsources=self.nsources), chainss
 
 
 class DirectedSamplerPhase(SamplerPhase):
@@ -611,13 +592,13 @@ class DirectedSamplerPhase(SamplerPhase):
         else:
             return s or 1.0
 
-    def get_raw_sample(self, problem, iiter, chains):
+    def get_raw_sample(self, problem, iiter, chainss, misfits, nsegmentation):
         rstate = self.get_rstate()
         factor = self.get_scatter_scale_factor(iiter)
         npar = problem.nparameters
         pnames = problem.parameter_names
         xbounds = problem.get_parameter_bounds()
-
+        chains = chainss[nsegmentation]
         ilink_choice = None
         ichain_choice = num.argmin(chains.accept_sum)
 
@@ -705,12 +686,14 @@ class DirectedSamplerPhase(SamplerPhase):
                     break
 
             x = xcandi
+        chainss[nsegmentation] = chains
 
         return Sample(
             model=x,
             ichain_base=ichain_choice,
             ilink_base=ilink_choice,
-            imodel_base=chains.imodel(ichain_choice, ilink_choice))
+            imodel_base=chains.imodel(ichain_choice, ilink_choice),
+            nsources=nsegmentation+1), chainss
 
 
 def make_bayesian_weights(nbootstrap, nmisfits,
@@ -735,6 +718,43 @@ def make_bayesian_weights(nbootstrap, nmisfits,
             assert False
     return ws
 
+class Chains_nsources(object):
+    def __init__(
+            self, problem, history, nchains, nlinks_cap):
+
+        self.problem = problem
+        self.history = history
+        self.nchains = nchains
+        self.nlinks_cap = nlinks_cap
+        self.chains_m = num.zeros(
+            (self.nchains, nlinks_cap), dtype=num.float)
+        self.chains_i = num.zeros(
+            (self.nchains, nlinks_cap), dtype=num.int)
+        self.nlinks = 0
+        self.nread = 0
+        self._nsources = num.zeros(
+            (self.nchains, 1024), dtype=num.bool)
+        self.accept_sum = num.zeros(self.nchains, dtype=num.int)
+        self._acceptance_history = num.zeros(
+            (self.nchains, 1024), dtype=num.bool)
+
+        history.add_listener(self)
+
+    def update(self, nsources):
+        self._append_nsources(nsources)
+        self.accept_sum += accept
+        self.nread += 1
+
+    def _append_nsources(self, acceptance):
+        if self.nread >= self._acceptance_history.shape[1]:
+            new_buf = num.zeros(
+                (self.nchains, nextpow2(self.nread+1)), dtype=num.bool)
+            new_buf[:, :self._acceptance_history.shape[1]] = \
+                self._acceptance_history
+            self._acceptance_history = new_buf
+        self._acceptance_history[:, self.nread] = acceptance
+
+
 
 class Chains(object):
     def __init__(
@@ -750,7 +770,8 @@ class Chains(object):
             (self.nchains, nlinks_cap), dtype=num.int)
         self.nlinks = 0
         self.nread = 0
-
+        self._nsources = num.zeros(
+            (self.nchains, 1024), dtype=num.bool)
         self.accept_sum = num.zeros(self.nchains, dtype=num.int)
         self._acceptance_history = num.zeros(
             (self.nchains, 1024), dtype=num.bool)
@@ -869,6 +890,7 @@ class transDOptimiser(Optimiser):
 
     sampler_phases = List.T(SamplerPhase.T())
     chain_length_factor = Float.T(default=8.)
+    nsources_accepted_length_factor = Float.T(default=8.)
     nbootstrap = Int.T(default=100)
     bootstrap_type = BootstrapTypeChoice.T(default='bayesian')
     bootstrap_seed = Int.T(default=23)
@@ -963,6 +985,14 @@ class transDOptimiser(Optimiser):
     def nchains(self):
         return self.nbootstrap + 1
 
+    def chains_nsources(self, problem, history):
+        nlinks_cap = int(round(
+            self.nsources_accepted_length_factor * problem.nparameters + 1))
+
+        return Chains_nsources(
+            problem, history,
+            nchains=self.nchains, nlinks_cap=nlinks_cap)
+
     def chains(self, problem, history):
         nlinks_cap = int(round(
             self.chain_length_factor * problem.nparameters + 1))
@@ -979,7 +1009,7 @@ class transDOptimiser(Optimiser):
 
             niter += phase.niterations
 
-        assert False, 'sample out of bounds'
+        #assert False, 'sample out of bounds'
 
     def log_progress(self, problem, iiter, niter, phase, iiter_phase):
         t = time.time()
@@ -995,68 +1025,105 @@ class transDOptimiser(Optimiser):
 
             self._tlog_last = t
 
+    def aic(self, misfits, nparas):
+
+        sig = 0.03
+        res = (num.nanmean(misfits))/sig
+        Norm = -(num.log(sig)+0.5*num.log(2*num.pi))
+        logLLK = Norm-0.5*(res*res).sum()
+        aic = (2.*(nparas))-2*logLLK
+        sbic = -2*logLLK+(num.log(len(misfits))*nparas)
+        return aic
+
     def optimise(self, problem, rundir=None):
         if rundir is not None:
             self.dump(filename=op.join(rundir, 'optimiser.yaml'))
-
+        nlinks_nsources = int(round(
+            self.nsources_accepted_length_factor * problem.nparameters + 1))
         history = ModelHistory(problem,
                                nchains=self.nchains,
                                path=rundir, mode='w')
         chains = self.chains(problem, history)
-
+        chainss = []
+        nsegmentations = 3
+        for jiter in range(nsegmentations):
+            chainss.append(chains)
+        #chains_nsources = self.chains_nsources(problem, history)
+        chains_nsources = []
         niter = self.niterations
         isbad_mask = None
         self._tlog_last = 0
+        misfitss = [None, None, None]
         misfits = None
+        chains_nsources = []
+
         for iiter in range(niter):
-            iphase, phase, iiter_phase = self.get_sampler_phase(iiter)
-            self.log_progress(problem, iiter, niter, phase, iiter_phase)
+            for jiter in range(nsegmentations):
+                iphase, phase, iiter_phase = self.get_sampler_phase(iiter)
+                self.log_progress(problem, iiter, niter, phase, iiter_phase)
 
-            sample = phase.get_sample(problem, iiter_phase, chains, misfits)
-            sample.iphase = iphase
+                misfits = misfitss[jiter]
+                sample, chainss = phase.get_sample(problem, iiter_phase, chainss, misfits, jiter)
+                sample.iphase = iphase
 
-            if isbad_mask is not None and num.any(isbad_mask):
-                isok_mask = num.logical_not(isbad_mask)
-            else:
-                isok_mask = None
+                if isbad_mask is not None and num.any(isbad_mask):
+                    isok_mask = num.logical_not(isbad_mask)
+                else:
+                    isok_mask = None
+                misfits = problem.misfits(sample.model, sample.nsources, jiter,
+                                          mask=isok_mask)
+                misfitss[jiter] = misfits
+                aic = self.aic(misfits, (jiter+1)*12)
+                if len(chains_nsources) < nlinks_nsources:
+                    chains_nsources.append([aic, jiter])
+                else:
+                    # here choice from the chains_nsources
+                    min_set = min(chains_nsources, key=lambda xs: xs[0])[0]
+                    if min_set < aic:
+                        for idx, vaic in chains_nsources:
+                            if vaic == min_set:
+                                chains_nsources[idx] = [aic, jiter]
+                bootstrap_misfits = problem.combine_misfits(
+                    misfits,
+                    extra_weights=self.get_bootstrap_weights(problem),
+                    extra_residuals=self.get_bootstrap_residuals(problem))
 
-            misfits = problem.misfits(sample.model, sample.nsources,
-                                      mask=isok_mask)
+                isbad_mask_new = num.isnan(misfits[:, 0])
+                if isbad_mask is not None and num.any(
+                        isbad_mask != isbad_mask_new):
 
-            bootstrap_misfits = problem.combine_misfits(
-                misfits,
-                extra_weights=self.get_bootstrap_weights(problem),
-                extra_residuals=self.get_bootstrap_residuals(problem))
+                    errmess = [
+                        'problem %s: inconsistency in data availability'
+                        ' at iteration %i' %
+                        (problem.name, iiter)]
 
-            isbad_mask_new = num.isnan(misfits[:, 0])
-            if isbad_mask is not None and num.any(
-                    isbad_mask != isbad_mask_new):
+                    for target, isbad_new, isbad in zip(
+                            problem.targets, isbad_mask_new, isbad_mask):
 
-                errmess = [
-                    'problem %s: inconsistency in data availability'
-                    ' at iteration %i' %
-                    (problem.name, iiter)]
+                        if isbad_new != isbad:
+                            errmess.append('  %s, %s -> %s' % (
+                                target.string_id(), isbad, isbad_new))
 
-                for target, isbad_new, isbad in zip(
-                        problem.targets, isbad_mask_new, isbad_mask):
+                    raise BadProblem('\n'.join(errmess))
 
-                    if isbad_new != isbad:
-                        errmess.append('  %s, %s -> %s' % (
-                            target.string_id(), isbad, isbad_new))
+                isbad_mask = isbad_mask_new
 
-                raise BadProblem('\n'.join(errmess))
+                if num.all(isbad_mask):
+                    raise BadProblem(
+                        'Problem %s: all target misfit values are NaN.'
+                        % problem.name)
 
-            isbad_mask = isbad_mask_new
-
-            if num.all(isbad_mask):
-                raise BadProblem(
-                    'Problem %s: all target misfit values are NaN.'
-                    % problem.name)
-
-            history.append(
-                sample.model, misfits,
-                bootstrap_misfits,
-                sample.pack_context())
+                history.append(
+                    sample.model, misfits,
+                    bootstrap_misfits,
+                    sample.pack_context())
+        chains_nsources = num.asarray(chains_nsources)
+        for chain in chainss:
+            print(chain)
+        fobj_cum = open(os.path.join('chains_nsources.ASC'),'w')
+        for x, y in zip(chains_nsources[:][:,0],chains_nsources[:][:,1]):
+            fobj_cum.write('%.2f %.2f\n' % (x,y))
+        fobj_cum.close()
 
     @property
     def niterations(self):

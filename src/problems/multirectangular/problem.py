@@ -17,7 +17,7 @@ class MultiRectangularProblemConfig(ProblemConfig):
     ranges = Dict.T(String.T(), gf.Range.T())
     decimation_factor = Int.T(default=1)
     distance_min = Float.T(default=0.)
-    nsources = Int.T(default=1)
+    nsources = Int.T(default=1.)
 
     def get_problem(self, event, target_groups, targets):
         base_source = gf.RectangularSource.from_pyrocko_event(
@@ -42,17 +42,13 @@ class MultiRectangularProblemConfig(ProblemConfig):
 
 
 class MultiRectangularProblem(Problem):
-    nsources = 3 #maximum number of sources allowed
-    for i in range(0, 100):
-        if "--nsources="+str(i) in sys.argv:
-            nsources = int(i)
-    if nsources is None:
-        print('input --nsources= to go command missing')
+    nsourcesmax = 3 #maximum number of sources allowed
+
 
     problem_parameters = []
     problem_waveform_parameters = []
 
-    for i in range(0, nsources):
+    for i in range(0, nsourcesmax):
         problem_parameters.append(Parameter('north_shift%s' % i,
                                             'm',
                                             label='Northing %s' %i,
@@ -89,6 +85,8 @@ class MultiRectangularProblem(Problem):
                                             label='Nucleation Y %s' %i))
         problem_parameters.append(Parameter('time%s' % i, 's',
                                              label='Time %s' %i))
+        problem_parameters.append(Parameter('velocity%s' % i, 's',
+                                             label='Velocity %s' %i))
 
     dependants = []
     distance_min = Float.T(default=0.0)
@@ -100,8 +98,8 @@ class MultiRectangularProblem(Problem):
                 arr[ip] -= self.base_source.time
         return arr
 
-    def get_source(self, x, i):
-        d = self.get_parameter_dict(x[0+12*i:12+i*12], nsources=True)
+    def get_source(self, x, i, nseg):
+        d = self.get_parameter_dict(x[0+13*i+nseg*13:13+i*13+nseg*13], nsources=True)
         p = {}
         for k in self.base_source.keys():
             if k in d:

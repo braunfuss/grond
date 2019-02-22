@@ -77,7 +77,10 @@ class CombiSource(gf.Source):
     def discretize_basesource(self, store, target=None):
 
         dsources = []
-        t0 = min(self.subsources[:].time)
+        times_sf = []
+        for sf in self.subsources:
+            times_sf.append(sf.time)
+        t0 = min(times_sf)
         for sf in self.subsources:
             ds = sf.discretize_basesource(store, target)
             ds.m6s *= sf.get_factor()
@@ -528,17 +531,20 @@ class Problem(Object):
 
         return self._family_mask
 
-    def evaluate(self, x, nsources, mask=None, result_mode='full',
+    def evaluate(self, x, nsources, nseg, mask=None, result_mode='full',
                  targets=None):
         patches = []
         outlines = []
         for i in range(nsources):
-            source = self.get_source(x, i)
+            source = self.get_source(x, i, nseg)
             patches.append(source)
             outlines.append(source.outline())
 
         engine = self.get_engine()
-        sources = CombiSource(subsources=patches)
+        if nsources > 1:
+            sources = CombiSource(subsources=patches)
+        else:
+            sources = source
         self.set_target_parameter_values(x)
 
         if mask is not None and targets is not None:
@@ -566,7 +572,7 @@ class Problem(Object):
 
         modelling_targets_unique = list(u2m_map.keys())
 
-        resp = engine.process(source, modelling_targets_unique,
+        resp = engine.process(sources, modelling_targets_unique,
                               nthreads=self.nthreads)
 
         modelling_results_unique = list(resp.results_list[0])
@@ -598,8 +604,8 @@ class Problem(Object):
 
         return results
 
-    def misfits(self, x, nsources, mask=None):
-        results = self.evaluate(x, nsources, mask=mask, result_mode='sparse')
+    def misfits(self, x, nsources, nseg, mask=None):
+        results = self.evaluate(x, nsources, nseg, mask=mask, result_mode='sparse')
         misfits = num.full((self.nmisfits, 2), num.nan)
 
         imisfit = 0
@@ -672,12 +678,14 @@ class ModelHistory(object):
 
     nmodels_capacity_min = 1024
 
-    def __init__(self, problem, nchains=None, path=None, mode='r'):
+    def __init__(self, problem, nchains=None, path=None,
+                 nsources=None, mode='r'):
         self.mode = mode
 
         self.problem = problem
         self.path = path
         self.nchains = nchains
+        self.nsources = nsources
 
         self._models_buffer = None
         self._misfits_buffer = None
