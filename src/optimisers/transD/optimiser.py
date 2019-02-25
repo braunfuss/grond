@@ -161,10 +161,15 @@ class InjectionSamplerPhase(SamplerPhase):
 
 
 class UniformSamplerPhase(SamplerPhase):
-
-    def get_raw_sample(self, problem, iiter, chains):
+    def get_raw_sample(self, problem, iiter, chainss, misfits, nsegmentation):
         xbounds = problem.get_parameter_bounds()
-        return Sample(model=problem.random_uniform(xbounds, self.get_rstate()))
+        if nsegmentation == 0:
+            xbounds = xbounds[0:13, :]
+        if nsegmentation == 1:
+            xbounds = xbounds[0:26, :]
+        if nsegmentation == 2:
+            xbounds = xbounds[0:39, :]
+        return Sample(model=problem.random_uniform(xbounds, self.get_rstate(), 13*(nsegmentation+1)), nsources=nsegmentation+1), chainss
 
 
 class GuidedSamplerPhase(SamplerPhase):
@@ -229,15 +234,14 @@ class GuidedSamplerPhase(SamplerPhase):
     nsegmentation = None
 
     try:
-        bp_input_grid_lf = num.loadtxt('semb_lf.ASC', unpack=True)
-        bp_input_grid_lf = None
+        bp_input_grid_lf = num.loadtxt('../semb_lf.ASC', unpack=True)
     except:
         pass
     try:
-        bp_input_grid_timecum_lf = num.loadtxt('semb_timecum.ASC', unpack=True)
-        bp_input_grid_timemin_lf = num.loadtxt('semb_timemin.ASC', unpack=True)
-        bp_input_sembmaxtime_lf = num.loadtxt('sembmax_0.txt', unpack=True)
-        bp_input_sembmaxtime_hf = num.loadtxt('sembmax_1.txt', unpack=True)
+        bp_input_grid_timecum_lf = num.loadtxt('../semb_timecum.ASC', unpack=True)
+        bp_input_grid_timemin_lf = num.loadtxt('../semb_timemin.ASC', unpack=True)
+        bp_input_sembmaxtime_lf = num.loadtxt('../sembmax_0.txt', unpack=True)
+        bp_input_sembmaxtime_hf = num.loadtxt('../sembmax_1.txt', unpack=True)
     except:
         bp_input_grid_timemin_lf = None
         bp_input_grid_timecum_lf = None
@@ -245,18 +249,14 @@ class GuidedSamplerPhase(SamplerPhase):
         bp_input_sembmaxtime_lf = None
         pass
     try:
-        bp_input_grid_hf = num.loadtxt('semb_lf.ASC', unpack=True)
-        bp_input_grid_hf = None
+        bp_input_grid_hf = num.loadtxt('../semb_hf.ASC', unpack=True)
     except:
         pass
-    try:
-        grad_input_grid = num.loadtxt('grad.ASC', unpack=True)
-        grad_input_grid = None
-    except:
-        pass
+    grad_input_grid = num.loadtxt('../grad_grid_resam.ASC', unpack=True)
+
 
     if grad_input_grid is not None:
-        grad = grad_input_grid[2]
+        grad = abs(grad_input_grid[2])
         grad_index_shape_lf = num.shape(grad_input_grid[0])
         normed_grad_index_lf = grad/num.linalg.norm(grad, ord=1)
         xk = num.arange(grad_index_shape_lf[0])
@@ -400,17 +400,20 @@ class GuidedSamplerPhase(SamplerPhase):
                    self.bp_input_grid_lf is not None:
                     sampled_index_xy = []
                     weight_grad = 5
-                    sampled.append('LF')
-                    for i in range(0, weight_grad):
-                        sampled.append('grad')
-                    sampled = rstate.choice(sampled, 1)[0]
-                    if sampled is 'grad':
-                        sampled_index_xy = self.prior_grad_loc.rvs()
-                    if sampled is 'LF':
-                        sampled_index_xy = self.prior_bp_loc.rvs()
+                    sampled = 'grad'
+                    #sampled.append('LF')
+                #    for i in range(0, weight_grad):
+                #        sampled.append('grad')
+                #    sampled = rstate.choice(sampled, 1)[0]
+                #    if sampled is 'grad':
+                #        sampled_index_xy = self.prior_grad_loc.rvs()
+                #    if sampled is 'LF':
+                #        sampled_index_xy = self.prior_bp_loc.rvs()
+                    sampled_index_xy = self.prior_grad_loc.rvs()
+                    source = problem.get_source(model, i, self.nsegmentations)
 
                     es_list, ns_list = self.get_distance(source,
-                                                         self.bp_input_grid_lf,
+                                                         self.grad_input_grid,
                                                          sampled)
                     east_shift = es_list[sampled_index_xy]
                     north_shift = ns_list[sampled_index_xy]
@@ -461,7 +464,7 @@ class GuidedSamplerPhase(SamplerPhase):
 
                 if source.nucleation_x is not None and\
                    self.bp_input_grid_hf is not None:
-                    check_bounds_hf = True
+                    check_bounds_hf = False
                     sampled_index_nuc = self.prior_bp_nuc.rvs()
                     es_list, ns_list = self.get_distance(source,
                                                          self.bp_input_grid_hf,
@@ -1414,10 +1417,12 @@ class transDOptimiser(Optimiser):
                         sample.model, misfits,
                         bootstrap_misfits,
                         sample.pack_context())
+            chains_nsources_mega = num.asarray(chains_nsources)
+            fobj_cum = open(os.path.join('chains_nsources_iter_%s.ASC'%iiter),'w')
+            for x, y in zip(chains_nsources_mega[:][:,0],chains_nsources_mega[:][:,1]):
+                fobj_cum.write('%.2f %.2f\n' % (x,y))
+            fobj_cum.close()
         chains_nsources = num.asarray(chains_nsources)
-        for chain in chainss:
-            print(chain.history.models[-1])
-            print(chain.history.misfits[-1])
         fobj_cum = open(os.path.join('chains_nsources.ASC'),'w')
         for x, y in zip(chains_nsources[:][:,0],chains_nsources[:][:,1]):
             fobj_cum.write('%.2f %.2f\n' % (x,y))
