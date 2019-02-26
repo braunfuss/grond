@@ -765,7 +765,664 @@ class ModelHistory(object):
         if self.nmodels_capacity != nmodels_capacity_new:
 
             models_buffer = num.zeros(
-                (nmodels_capacity_new, self.problem.nparameters),
+                (nmodels_capacity_new, 13),
+                dtype=num.float)
+            misfits_buffer = num.zeros(
+                (nmodels_capacity_new, self.problem.nmisfits, 2),
+                dtype=num.float)
+            sample_contexts_buffer = num.zeros(
+                (nmodels_capacity_new, 4),
+                dtype=num.int)
+            sample_contexts_buffer.fill(-1)
+
+            if self.nchains is not None:
+                bootstraps_buffer = num.zeros(
+                    (nmodels_capacity_new, self.nchains),
+                    dtype=num.float)
+
+            ncopy = min(self.nmodels, nmodels_capacity_new)
+
+            if self._models_buffer is not None:
+                models_buffer[:ncopy, :] = \
+                    self._models_buffer[:ncopy, :]
+                misfits_buffer[:ncopy, :, :] = \
+                    self._misfits_buffer[:ncopy, :, :]
+                sample_contexts_buffer[:ncopy, :] = \
+                    self._sample_contexts_buffer[:ncopy, :]
+
+            self._models_buffer = models_buffer
+            self._misfits_buffer = misfits_buffer
+            self._sample_contexts_buffer = sample_contexts_buffer
+
+            if self.nchains is not None:
+                if self._bootstraps_buffer is not None:
+                    bootstraps_buffer[:ncopy, :] = \
+                        self._bootstraps_buffer[:ncopy, :]
+                self._bootstraps_buffer = bootstraps_buffer
+
+    def clear(self):
+        self.nmodels = 0
+        self.nmodels_capacity = self.nmodels_capacity_min
+
+    def extend(
+            self, models, misfits,
+            bootstrap_misfits=None,
+            sampler_contexts=None):
+
+        nmodels = self.nmodels
+        n = models.shape[0]
+
+        nmodels_capacity_want = max(
+            self.nmodels_capacity_min, nextpow2(nmodels + n))
+
+        if nmodels_capacity_want != self.nmodels_capacity:
+            self.nmodels_capacity = nmodels_capacity_want
+        self._models_buffer[:, :]
+        self._models_buffer[nmodels:nmodels+n, :] = models
+        self._misfits_buffer[nmodels:nmodels+n, :, :] = misfits
+
+        self.models = self._models_buffer[:nmodels+n, :]
+        self.misfits = self._misfits_buffer[:nmodels+n, :, :]
+
+        if bootstrap_misfits is not None:
+            self._bootstraps_buffer[nmodels:nmodels+n, :] = bootstrap_misfits
+            self.bootstrap_misfits = self._bootstraps_buffer[:nmodels+n, :]
+
+        if sampler_contexts is not None:
+            self._sample_contexts_buffer[nmodels:nmodels+n, :] \
+                = sampler_contexts
+            self.sampler_contexts = self._sample_contexts_buffer[:nmodels+n, :]
+
+        if self.path and self.mode == 'w':
+            for i in range(n):
+                self.problem.dump_problem_data(
+                    self.path, models[i, :], misfits[i, :, :],
+                    bootstrap_misfits[i, :]
+                    if bootstrap_misfits is not None else None,
+                    sampler_contexts[i, :]
+                    if sampler_contexts is not None else None)
+
+        self.emit('extend', nmodels, n, models, misfits, sampler_contexts)
+
+    def append(
+            self, model, misfits,
+            bootstrap_misfits=None,
+            sampler_context=None):
+
+        if bootstrap_misfits is not None:
+            bootstrap_misfits = bootstrap_misfits[num.newaxis, :]
+
+        if sampler_context is not None:
+            sampler_context = sampler_context[num.newaxis, :]
+
+        return self.extend(
+            model[num.newaxis, :], misfits[num.newaxis, :, :],
+            bootstrap_misfits, sampler_context)
+
+    def load(self):
+        self.mode = 'r'
+        self.verify_rundir(self.path)
+        models, misfits, bootstraps, sampler_contexts = load_problem_data(
+            self.path, self.problem, nchains=self.nchains)
+        self.extend(models, misfits, bootstraps, sampler_contexts)
+
+    def update(self):
+        ''' Update history from path '''
+        nmodels_available = get_nmodels(self.path, self.problem)
+        if self.nmodels == nmodels_available:
+            return
+
+        try:
+            new_models, new_misfits, new_bootstraps, new_sampler_contexts = \
+                load_problem_data(
+                    self.path,
+                    self.problem,
+                    nmodels_skip=self.nmodels,
+                    nchains=self.nchains)
+
+        except ValueError:
+            return
+
+        self.extend(
+            new_models,
+            new_misfits,
+            new_bootstraps,
+            new_sampler_contexts)
+
+    def add_listener(self, listener):
+        self.listeners.append(listener)
+
+    def emit(self, event_name, *args, **kwargs):
+        for listener in self.listeners:
+            slot = getattr(listener, event_name, None)
+            if callable(slot):
+                slot(*args, **kwargs)
+
+    @property
+    def attribute_names(self):
+        apath = op.join(self.path, 'attributes')
+        if not os.path.exists(apath):
+            return []
+
+        return [fn for fn in os.listdir(apath)
+                if StringID.regex.match(fn)]
+
+    def get_attribute(self, name):
+        if name not in self._attributes:
+            if name not in self.attribute_names:
+                raise NoSuchAttribute(name)
+
+            path = op.join(self.path, 'attributes', name)
+
+            with open(path, 'rb') as f:
+                self._attributes[name] = num.fromfile(
+                    f, dtype='<i4',
+                    count=self.nmodels).astype(num.int)
+
+            assert self._attributes[name].shape == (self.nmodels,)
+
+        return self._attributes[name]
+
+    def set_attribute(self, name, attribute):
+        if not StringID.regex.match(name):
+            raise InvalidAttributeName(name)
+
+        attribute = attribute.astype(num.int)
+        assert attribute.shape == (self.nmodels,)
+
+        apath = op.join(self.path, 'attributes')
+
+        if not os.path.exists(apath):
+            os.mkdir(apath)
+
+        path = op.join(apath, name)
+
+        with open(path, 'wb') as f:
+            attribute.astype('<i4').tofile(f)
+
+        self._attributes[name] = attribute
+
+    def ensure_bootstrap_misfits(self, optimiser):
+        if self.bootstrap_misfits is None:
+            problem = self.problem
+            self.bootstrap_misfits = problem.combine_misfits(
+                self.misfits,
+                extra_weights=optimiser.get_bootstrap_weights(problem),
+                extra_residuals=optimiser.get_bootstrap_residuals(problem))
+
+    def imodels_by_cluster(self, cluster_attribute):
+        if cluster_attribute is None:
+            return [(-1, 100.0, num.arange(self.nmodels))]
+
+        by_cluster = []
+        try:
+            iclusters = self.get_attribute(cluster_attribute)
+            iclusters_avail = num.unique(iclusters)
+
+            for icluster in iclusters_avail:
+                imodels = num.where(iclusters == icluster)[0]
+                by_cluster.append(
+                    (icluster,
+                     (100.0 * imodels.size) / self.nmodels,
+                     imodels))
+
+            if by_cluster and by_cluster[0][0] == -1:
+                by_cluster.append(by_cluster.pop(0))
+
+        except NoSuchAttribute:
+            logger.warn(
+                'Attribute %s not set in run %s.\n'
+                '  Skipping model retrieval by clusters.' % (
+                    cluster_attribute, self.problem.name))
+
+        return by_cluster
+
+    def models_by_cluster(self, cluster_attribute):
+        if cluster_attribute is None:
+            return [(-1, 100.0, self.models)]
+
+        return [
+            (icluster, percentage, self.models[imodels])
+            for (icluster, percentage, imodels)
+            in self.imodels_by_cluster(cluster_attribute)]
+
+    def mean_sources_by_cluster(self, cluster_attribute):
+        return [
+            (icluster, percentage, stats.get_mean_source(self.problem, models))
+            for (icluster, percentage, models)
+            in self.models_by_cluster(cluster_attribute)]
+
+
+
+class ModelHistory1(object):
+    '''
+    Write, read and follow sequences of models produced in an optimisation run.
+
+    :param problem: :class:`grond.Problem` instance
+    :param path: path to rundir, defaults to None
+    :type path: str, optional
+    :param mode: open mode, 'r': read, 'w': write
+    :type mode: str, optional
+    '''
+
+    nmodels_capacity_min = 1024
+
+    def __init__(self, problem, nchains=None, path=None,
+                 nsources=None, mode='r'):
+        self.mode = mode
+
+        self.problem = problem
+        self.path = path
+        self.nchains = nchains
+        self.nsources = nsources
+
+        self._models_buffer = None
+        self._misfits_buffer = None
+        self._bootstraps_buffer = None
+        self._sample_contexts_buffer = None
+
+        self.models = None
+        self.misfits = None
+        self.bootstrap_misfits = None
+        self.sampler_contexts = None
+
+        self.nmodels_capacity = self.nmodels_capacity_min
+        self.listeners = []
+
+        self._attributes = {}
+
+        if mode == 'r':
+            self.load()
+
+    @staticmethod
+    def verify_rundir(rundir):
+        _rundir_files = ['misfits', 'models']
+
+        if not op.exists(rundir):
+            raise ProblemDataNotAvailable(
+                'Directory %s does not exist!' % rundir)
+        for f in _rundir_files:
+            if not op.exists(op.join(rundir, f)):
+                raise ProblemDataNotAvailable('File %s not found!' % f)
+
+    @classmethod
+    def follow(cls, path, nchains=None, wait=20.):
+        '''
+        Start following a rundir (constructor).
+
+        :param path: the path to follow, a grond rundir
+        :type path: str, optional
+        :param wait: wait time until the folder become alive
+        :type wait: number in seconds, optional
+        :returns: A :py:class:`ModelHistory` instance
+        '''
+        start_watch = time.time()
+        while (time.time() - start_watch) < wait:
+            try:
+                cls.verify_rundir(path)
+                problem = load_problem_info(path)
+                return cls(problem, nchains=nchains, path=path, mode='r')
+            except (ProblemDataNotAvailable, OSError):
+                time.sleep(.25)
+
+    @property
+    def nmodels(self):
+        if self.models is None:
+            return 0
+        else:
+            return self.models.shape[0]
+
+    @nmodels.setter
+    def nmodels(self, nmodels_new):
+        assert 0 <= nmodels_new <= self.nmodels
+        self.models = self._models_buffer[:nmodels_new, :]
+        self.misfits = self._misfits_buffer[:nmodels_new, :, :]
+        if self.nchains is not None:
+            self.bootstrap_misfits = self._bootstraps_buffer[:nmodels_new, :, :]  # noqa
+        if self._sample_contexts_buffer is not None:
+            self.sampler_contexts = self._sample_contexts_buffer[:nmodels_new, :]  # noqa
+
+    @property
+    def nmodels_capacity(self):
+        if self._models_buffer is None:
+            return 0
+        else:
+            return self._models_buffer.shape[0]
+
+    @nmodels_capacity.setter
+    def nmodels_capacity(self, nmodels_capacity_new):
+        if self.nmodels_capacity != nmodels_capacity_new:
+
+            models_buffer = num.zeros(
+                (nmodels_capacity_new, 26),
+                dtype=num.float)
+            misfits_buffer = num.zeros(
+                (nmodels_capacity_new, self.problem.nmisfits, 2),
+                dtype=num.float)
+            sample_contexts_buffer = num.zeros(
+                (nmodels_capacity_new, 4),
+                dtype=num.int)
+            sample_contexts_buffer.fill(-1)
+
+            if self.nchains is not None:
+                bootstraps_buffer = num.zeros(
+                    (nmodels_capacity_new, self.nchains),
+                    dtype=num.float)
+
+            ncopy = min(self.nmodels, nmodels_capacity_new)
+
+            if self._models_buffer is not None:
+                models_buffer[:ncopy, :] = \
+                    self._models_buffer[:ncopy, :]
+                misfits_buffer[:ncopy, :, :] = \
+                    self._misfits_buffer[:ncopy, :, :]
+                sample_contexts_buffer[:ncopy, :] = \
+                    self._sample_contexts_buffer[:ncopy, :]
+
+            self._models_buffer = models_buffer
+            self._misfits_buffer = misfits_buffer
+            self._sample_contexts_buffer = sample_contexts_buffer
+
+            if self.nchains is not None:
+                if self._bootstraps_buffer is not None:
+                    bootstraps_buffer[:ncopy, :] = \
+                        self._bootstraps_buffer[:ncopy, :]
+                self._bootstraps_buffer = bootstraps_buffer
+
+    def clear(self):
+        self.nmodels = 0
+        self.nmodels_capacity = self.nmodels_capacity_min
+
+    def extend(
+            self, models, misfits,
+            bootstrap_misfits=None,
+            sampler_contexts=None):
+
+        nmodels = self.nmodels
+        n = models.shape[0]
+
+        nmodels_capacity_want = max(
+            self.nmodels_capacity_min, nextpow2(nmodels + n))
+
+        if nmodels_capacity_want != self.nmodels_capacity:
+            self.nmodels_capacity = nmodels_capacity_want
+
+        self._models_buffer[nmodels:nmodels+n, :] = models
+        self._misfits_buffer[nmodels:nmodels+n, :, :] = misfits
+
+        self.models = self._models_buffer[:nmodels+n, :]
+        self.misfits = self._misfits_buffer[:nmodels+n, :, :]
+
+        if bootstrap_misfits is not None:
+            self._bootstraps_buffer[nmodels:nmodels+n, :] = bootstrap_misfits
+            self.bootstrap_misfits = self._bootstraps_buffer[:nmodels+n, :]
+
+        if sampler_contexts is not None:
+            self._sample_contexts_buffer[nmodels:nmodels+n, :] \
+                = sampler_contexts
+            self.sampler_contexts = self._sample_contexts_buffer[:nmodels+n, :]
+
+        if self.path and self.mode == 'w':
+            for i in range(n):
+                self.problem.dump_problem_data(
+                    self.path, models[i, :], misfits[i, :, :],
+                    bootstrap_misfits[i, :]
+                    if bootstrap_misfits is not None else None,
+                    sampler_contexts[i, :]
+                    if sampler_contexts is not None else None)
+
+        self.emit('extend', nmodels, n, models, misfits, sampler_contexts)
+
+    def append(
+            self, model, misfits,
+            bootstrap_misfits=None,
+            sampler_context=None):
+
+        if bootstrap_misfits is not None:
+            bootstrap_misfits = bootstrap_misfits[num.newaxis, :]
+
+        if sampler_context is not None:
+            sampler_context = sampler_context[num.newaxis, :]
+
+        return self.extend(
+            model[num.newaxis, :], misfits[num.newaxis, :, :],
+            bootstrap_misfits, sampler_context)
+
+    def load(self):
+        self.mode = 'r'
+        self.verify_rundir(self.path)
+        models, misfits, bootstraps, sampler_contexts = load_problem_data(
+            self.path, self.problem, nchains=self.nchains)
+        self.extend(models, misfits, bootstraps, sampler_contexts)
+
+    def update(self):
+        ''' Update history from path '''
+        nmodels_available = get_nmodels(self.path, self.problem)
+        if self.nmodels == nmodels_available:
+            return
+
+        try:
+            new_models, new_misfits, new_bootstraps, new_sampler_contexts = \
+                load_problem_data(
+                    self.path,
+                    self.problem,
+                    nmodels_skip=self.nmodels,
+                    nchains=self.nchains)
+
+        except ValueError:
+            return
+
+        self.extend(
+            new_models,
+            new_misfits,
+            new_bootstraps,
+            new_sampler_contexts)
+
+    def add_listener(self, listener):
+        self.listeners.append(listener)
+
+    def emit(self, event_name, *args, **kwargs):
+        for listener in self.listeners:
+            slot = getattr(listener, event_name, None)
+            if callable(slot):
+                slot(*args, **kwargs)
+
+    @property
+    def attribute_names(self):
+        apath = op.join(self.path, 'attributes')
+        if not os.path.exists(apath):
+            return []
+
+        return [fn for fn in os.listdir(apath)
+                if StringID.regex.match(fn)]
+
+    def get_attribute(self, name):
+        if name not in self._attributes:
+            if name not in self.attribute_names:
+                raise NoSuchAttribute(name)
+
+            path = op.join(self.path, 'attributes', name)
+
+            with open(path, 'rb') as f:
+                self._attributes[name] = num.fromfile(
+                    f, dtype='<i4',
+                    count=self.nmodels).astype(num.int)
+
+            assert self._attributes[name].shape == (self.nmodels,)
+
+        return self._attributes[name]
+
+    def set_attribute(self, name, attribute):
+        if not StringID.regex.match(name):
+            raise InvalidAttributeName(name)
+
+        attribute = attribute.astype(num.int)
+        assert attribute.shape == (self.nmodels,)
+
+        apath = op.join(self.path, 'attributes')
+
+        if not os.path.exists(apath):
+            os.mkdir(apath)
+
+        path = op.join(apath, name)
+
+        with open(path, 'wb') as f:
+            attribute.astype('<i4').tofile(f)
+
+        self._attributes[name] = attribute
+
+    def ensure_bootstrap_misfits(self, optimiser):
+        if self.bootstrap_misfits is None:
+            problem = self.problem
+            self.bootstrap_misfits = problem.combine_misfits(
+                self.misfits,
+                extra_weights=optimiser.get_bootstrap_weights(problem),
+                extra_residuals=optimiser.get_bootstrap_residuals(problem))
+
+    def imodels_by_cluster(self, cluster_attribute):
+        if cluster_attribute is None:
+            return [(-1, 100.0, num.arange(self.nmodels))]
+
+        by_cluster = []
+        try:
+            iclusters = self.get_attribute(cluster_attribute)
+            iclusters_avail = num.unique(iclusters)
+
+            for icluster in iclusters_avail:
+                imodels = num.where(iclusters == icluster)[0]
+                by_cluster.append(
+                    (icluster,
+                     (100.0 * imodels.size) / self.nmodels,
+                     imodels))
+
+            if by_cluster and by_cluster[0][0] == -1:
+                by_cluster.append(by_cluster.pop(0))
+
+        except NoSuchAttribute:
+            logger.warn(
+                'Attribute %s not set in run %s.\n'
+                '  Skipping model retrieval by clusters.' % (
+                    cluster_attribute, self.problem.name))
+
+        return by_cluster
+
+    def models_by_cluster(self, cluster_attribute):
+        if cluster_attribute is None:
+            return [(-1, 100.0, self.models)]
+
+        return [
+            (icluster, percentage, self.models[imodels])
+            for (icluster, percentage, imodels)
+            in self.imodels_by_cluster(cluster_attribute)]
+
+    def mean_sources_by_cluster(self, cluster_attribute):
+        return [
+            (icluster, percentage, stats.get_mean_source(self.problem, models))
+            for (icluster, percentage, models)
+            in self.models_by_cluster(cluster_attribute)]
+
+
+class ModelHistory2(object):
+    '''
+    Write, read and follow sequences of models produced in an optimisation run.
+
+    :param problem: :class:`grond.Problem` instance
+    :param path: path to rundir, defaults to None
+    :type path: str, optional
+    :param mode: open mode, 'r': read, 'w': write
+    :type mode: str, optional
+    '''
+
+    nmodels_capacity_min = 1024
+
+    def __init__(self, problem, nchains=None, path=None,
+                 nsources=None, mode='r'):
+        self.mode = mode
+
+        self.problem = problem
+        self.path = path
+        self.nchains = nchains
+        self.nsources = nsources
+
+        self._models_buffer = None
+        self._misfits_buffer = None
+        self._bootstraps_buffer = None
+        self._sample_contexts_buffer = None
+
+        self.models = None
+        self.misfits = None
+        self.bootstrap_misfits = None
+        self.sampler_contexts = None
+
+        self.nmodels_capacity = self.nmodels_capacity_min
+        self.listeners = []
+
+        self._attributes = {}
+
+        if mode == 'r':
+            self.load()
+
+    @staticmethod
+    def verify_rundir(rundir):
+        _rundir_files = ['misfits', 'models']
+
+        if not op.exists(rundir):
+            raise ProblemDataNotAvailable(
+                'Directory %s does not exist!' % rundir)
+        for f in _rundir_files:
+            if not op.exists(op.join(rundir, f)):
+                raise ProblemDataNotAvailable('File %s not found!' % f)
+
+    @classmethod
+    def follow(cls, path, nchains=None, wait=20.):
+        '''
+        Start following a rundir (constructor).
+
+        :param path: the path to follow, a grond rundir
+        :type path: str, optional
+        :param wait: wait time until the folder become alive
+        :type wait: number in seconds, optional
+        :returns: A :py:class:`ModelHistory` instance
+        '''
+        start_watch = time.time()
+        while (time.time() - start_watch) < wait:
+            try:
+                cls.verify_rundir(path)
+                problem = load_problem_info(path)
+                return cls(problem, nchains=nchains, path=path, mode='r')
+            except (ProblemDataNotAvailable, OSError):
+                time.sleep(.25)
+
+    @property
+    def nmodels(self):
+        if self.models is None:
+            return 0
+        else:
+            return self.models.shape[0]
+
+    @nmodels.setter
+    def nmodels(self, nmodels_new):
+        assert 0 <= nmodels_new <= self.nmodels
+        self.models = self._models_buffer[:nmodels_new, :]
+        self.misfits = self._misfits_buffer[:nmodels_new, :, :]
+        if self.nchains is not None:
+            self.bootstrap_misfits = self._bootstraps_buffer[:nmodels_new, :, :]  # noqa
+        if self._sample_contexts_buffer is not None:
+            self.sampler_contexts = self._sample_contexts_buffer[:nmodels_new, :]  # noqa
+
+    @property
+    def nmodels_capacity(self):
+        if self._models_buffer is None:
+            return 0
+        else:
+            return self._models_buffer.shape[0]
+
+    @nmodels_capacity.setter
+    def nmodels_capacity(self, nmodels_capacity_new):
+        if self.nmodels_capacity != nmodels_capacity_new:
+
+            models_buffer = num.zeros(
+                (nmodels_capacity_new, 39),
                 dtype=num.float)
             misfits_buffer = num.zeros(
                 (nmodels_capacity_new, self.problem.nmisfits, 2),
