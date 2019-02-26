@@ -42,7 +42,7 @@ class MultiRectangularProblemConfig(ProblemConfig):
 
 
 class MultiRectangularProblem(Problem):
-    nsources = 3 #maximum number of sources allowed
+    nsources = 2 #maximum number of sources allowed
     for i in range(0, 100):
         if "--nsources="+str(i) in sys.argv:
             nsources = int(i)
@@ -89,7 +89,8 @@ class MultiRectangularProblem(Problem):
                                             label='Nucleation Y %s' %i))
         problem_parameters.append(Parameter('time%s' % i, 's',
                                              label='Time %s' %i))
-
+        problem_parameters.append(Parameter('velocity%s' % i, 's',
+                                             label='Velocity %s' %i))
     dependants = []
     distance_min = Float.T(default=0.0)
 
@@ -101,7 +102,7 @@ class MultiRectangularProblem(Problem):
         return arr
 
     def get_source(self, x, i):
-        d = self.get_parameter_dict(x[0+12*i:12+i*12], nsources=True)
+        d = self.get_parameter_dict(x[0+13*i:13+i*13], nsources=True)
         p = {}
         for k in self.base_source.keys():
             if k in d:

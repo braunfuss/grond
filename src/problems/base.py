@@ -532,6 +532,7 @@ class Problem(Object):
                  targets=None):
         patches = []
         outlines = []
+        nsources = 2
         for i in range(nsources):
             source = self.get_source(x, i)
             patches.append(source)
