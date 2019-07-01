@@ -3,7 +3,7 @@ from __future__ import print_function
 import logging
 import math
 import numpy as num
-
+from pyrocko.io import stationxml
 from pyrocko import gf, trace, weeding, util
 from pyrocko.guts import (Object, String, Float, Bool, Int, StringChoice,
                           Timestamp, List)
@@ -402,13 +402,23 @@ class WaveformMisfitTarget(gf.Target, MisfitTarget):
             syn_resp = trace.DifferentiationResponse(1)
         elif config.quantity == 'acceleration':
             syn_resp = trace.DifferentiationResponse(2)
+        elif config.quantity == 'historical':
+            tr = tr_syn
+            request_response = stationxml.load_xml(filename='stations_historical.xml')
+            stations = request_response.get_pyrocko_stations()
+            nstations = [s for s in stations]
+            polezero_response = request_response.get_pyrocko_response(
+                                nslc=tr.nslc_id,
+                                timespan=(tr.tmin, tr.tmax),
+                                fake_input_units='M')
+
         else:
             GrondError('Unsupported quantity: %s' % config.quantity)
 
         tr_syn = tr_syn.transfer(
             freqlimits=freqlimits,
             tfade=tfade,
-            transfer_function=syn_resp)
+            transfer_function=polezero_response)
 
         tr_syn.chop(tmin_fit - 2*tfade, tmax_fit + 2*tfade)
 
