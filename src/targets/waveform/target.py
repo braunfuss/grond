@@ -415,10 +415,7 @@ class WaveformMisfitTarget(gf.Target, MisfitTarget):
         else:
             GrondError('Unsupported quantity: %s' % config.quantity)
 
-        tr_syn = tr_syn.transfer(
-            freqlimits=freqlimits,
-            tfade=tfade,
-            transfer_function=polezero_response)
+        tr_syn = tr_syn.transfer(10., (0.005, 0.006, 166., 200.), polezero_response, False, False)
 
         tr_syn.chop(tmin_fit - 2*tfade, tmax_fit + 2*tfade)
 
