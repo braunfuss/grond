@@ -145,6 +145,56 @@ class Dataset(object):
                             % station.nsl_string())
                         station.add_channel(model.Channel('N'))
                         station.add_channel(model.Channel('E'))
+                    if len(channels) == 1 and channels[0].name.endswith('E'):
+                        logger.warning(
+                            'Station "%s" has vertical component'
+                            ' information only, adding mocked channels.'
+                            % station.nsl_string())
+                        station.add_channel(model.Channel('Z'))
+                        station.add_channel(model.Channel('N'))
+                    if len(channels) == 1 and channels[0].name.endswith('N'):
+                        logger.warning(
+                            'Station "%s" has vertical component'
+                            ' information only, adding mocked channels.'
+                            % station.nsl_string())
+                        station.add_channel(model.Channel('Z'))
+                        station.add_channel(model.Channel('E'))
+                    if len(channels) == 2 and channels[0].name.endswith('E') and channels[1].name.endswith('N'):
+                        logger.warning(
+                            'Station "%s" has vertical component'
+                            ' information only, adding mocked channels.'
+                            % station.nsl_string())
+                        station.add_channel(model.Channel('Z'))
+                    if len(channels) == 2 and channels[0].name.endswith('N') and channels[1].name.endswith('Z'):
+                        logger.warning(
+                            'Station "%s" has vertical component'
+                            ' information only, adding mocked channels.'
+                            % station.nsl_string())
+                        station.add_channel(model.Channel('E'))
+                    if len(channels) == 2 and channels[0].name.endswith('E') and channels[1].name.endswith('Z'):
+                        logger.warning(
+                            'Station "%s" has vertical component'
+                            ' information only, adding mocked channels.'
+                            % station.nsl_string())
+                        station.add_channel(model.Channel('N'))
+                    if len(channels) == 2 and channels[1].name.endswith('E') and channels[0].name.endswith('N'):
+                        logger.warning(
+                            'Station "%s" has vertical component'
+                            ' information only, adding mocked channels.'
+                            % station.nsl_string())
+                        station.add_channel(model.Channel('Z'))
+                    if len(channels) == 2 and channels[1].name.endswith('N') and channels[0].name.endswith('Z'):
+                        logger.warning(
+                            'Station "%s" has vertical component'
+                            ' information only, adding mocked channels.'
+                            % station.nsl_string())
+                        station.add_channel(model.Channel('E'))
+                    if len(channels) == 2 and channels[1].name.endswith('E') and channels[0].name.endswith('Z'):
+                        logger.warning(
+                            'Station "%s" has vertical component'
+                            ' information only, adding mocked channels.'
+                            % station.nsl_string())
+                        station.add_channel(model.Channel('N'))
 
                     self.stations[station.nsl()] = station
 
@@ -517,8 +567,8 @@ class Dataset(object):
             tmax,
             tpad=0.,
             toffset_noise_extract=0.,
-            want_incomplete=False,
-            extend_incomplete=False):
+            want_incomplete=True,
+            extend_incomplete=True):
 
         net, sta, loc, cha = self.get_nslc(obj)
 
@@ -582,8 +632,8 @@ class Dataset(object):
             tmin=None, tmax=None, tpad=0.,
             tfade=0., freqlimits=None, deltat=None,
             toffset_noise_extract=0.,
-            want_incomplete=False,
-            extend_incomplete=False):
+            want_incomplete=True,
+            extend_incomplete=True):
 
         trs_raw = self.get_waveform_raw(
             obj, tmin=tmin, tmax=tmax, tpad=tpad+tfade,
@@ -596,18 +646,7 @@ class Dataset(object):
             if deltat is not None:
                 tr.downsample_to(deltat, snap=True, allow_upsample_max=5)
                 tr.deltat = deltat
-
-            resp = self.get_response(tr, quantity=quantity)
-            try:
-                trs_restituted.append(
-                    tr.transfer(
-                        tfade=tfade, freqlimits=freqlimits,
-                        transfer_function=resp, invert=True))
-
-            except trace.InfiniteResponse:
-                raise NotFound(
-                    'Instrument response deconvolution failed '
-                    '(divide by zero)', tr.nslc_id)
+            trs_restituted.append(tr)
 
         return trs_restituted, trs_raw
 
