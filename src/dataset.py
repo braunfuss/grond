@@ -91,7 +91,7 @@ class Dataset(object):
         self.apply_correction_delays = True
         self.apply_correction_factors = True
         self.apply_displaced_sampling_workaround = False
-        self.extend_incomplete = False
+        self.extend_incomplete = True
         self.clip_handling = 'by_nsl'
         self.kite_scenes = []
         self.gnss_campaigns = []
@@ -138,61 +138,63 @@ class Dataset(object):
                 ev = self.get_event()
                 for station in sx.get_pyrocko_stations(time=ev.time):
                     channels = station.get_channels()
+
                     if len(channels) == 1 and channels[0].name.endswith('Z'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('N'))
                         station.add_channel(model.Channel('E'))
                     if len(channels) == 1 and channels[0].name.endswith('E'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('Z'))
                         station.add_channel(model.Channel('N'))
                     if len(channels) == 1 and channels[0].name.endswith('N'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('Z'))
                         station.add_channel(model.Channel('E'))
+
                     if len(channels) == 2 and channels[0].name.endswith('E') and channels[1].name.endswith('N'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('Z'))
                     if len(channels) == 2 and channels[0].name.endswith('N') and channels[1].name.endswith('Z'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('E'))
                     if len(channels) == 2 and channels[0].name.endswith('E') and channels[1].name.endswith('Z'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('N'))
-                    if len(channels) == 2 and channels[1].name.endswith('E') and channels[0].name.endswith('N'):
+                    if len(channels) == 2 and channels[1].name.endswith('N') and channels[0].name.endswith('E'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('Z'))
-                    if len(channels) == 2 and channels[1].name.endswith('N') and channels[0].name.endswith('Z'):
+                    if len(channels) == 2 and channels[1].name.endswith('Z') and channels[0].name.endswith('N'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('E'))
-                    if len(channels) == 2 and channels[1].name.endswith('E') and channels[0].name.endswith('Z'):
+                    if len(channels) == 2 and channels[1].name.endswith('Z') and channels[0].name.endswith('E'):
                         logger.warning(
-                            'Station "%s" has vertical component'
-                            ' information only, adding mocked channels.'
+                            'Station "%s" has missing component'
+                            ' information, adding mocked channels.'
                             % station.nsl_string())
                         station.add_channel(model.Channel('N'))
 
@@ -593,7 +595,7 @@ class Dataset(object):
         trs = self.pile.all(
             tmin=tmin+toffset_noise_extract,
             tmax=tmax+toffset_noise_extract,
-            tpad=tpad,
+            tpad=0,
             trace_selector=lambda tr: tr.nslc_id == (net, sta, loc, cha),
             want_incomplete=want_incomplete or extend_incomplete)
 
@@ -705,7 +707,6 @@ class Dataset(object):
         station = self.get_station(self.get_nsl(obj))
 
         nslc = station.nsl() + (channel,)
-
         if self.is_blacklisted(nslc):
             raise NotFound(
                 'Waveform is blacklisted:', nslc)
@@ -769,118 +770,42 @@ class Dataset(object):
         else:
             abs_delay_max = 0.0
 
-        projections = self._get_projections(
-            station, backazimuth, source, target, tmin, tmax)
 
+        trs_projected = []
+        trs_restituted = []
+        trs_raw = []
+        exceptions = []
+
+        trs_restituted_group = []
+        trs_raw_group = []
         try:
-            trs_projected = []
-            trs_restituted = []
-            trs_raw = []
-            exceptions = []
-            for matrix, in_channels, out_channels in projections:
-                deps = trace.project_dependencies(
-                    matrix, in_channels, out_channels)
-
                 try:
-                    trs_restituted_group = []
-                    trs_raw_group = []
-                    if channel in deps:
-                        for cha in deps[channel]:
-                            trs_restituted_this, trs_raw_this = \
-                                self.get_waveform_restituted(
-                                    station.nsl() + (cha,),
-                                    quantity=quantity,
-                                    tmin=tmin, tmax=tmax,
-                                    tpad=tpad+abs_delay_max,
-                                    toffset_noise_extract=toffset_noise_extract,  # noqa
-                                    tfade=tfade,
-                                    freqlimits=freqlimits,
-                                    deltat=deltat,
-                                    want_incomplete=debug,
-                                    extend_incomplete=self.extend_incomplete)
+                    trs_raw_this = \
+                        self.get_waveform_raw(
+                            station.nsl() + (channel,),
+                            tmin=tmin, tmax=tmax,
+                            tpad=tpad+abs_delay_max,
+                            toffset_noise_extract=toffset_noise_extract,  # noqa
+                            want_incomplete=debug,
+                            extend_incomplete=self.extend_incomplete)
+                    trs_raw_group.extend(trs_raw_this)
+                except:
+                    exceptions.extend('not found')
 
-                            trs_restituted_group.extend(trs_restituted_this)
-                            trs_raw_group.extend(trs_raw_this)
-
-                        trs_projected.extend(
-                            trace.project(
-                                trs_restituted_group, matrix,
-                                in_channels, out_channels))
-
-                        trs_restituted.extend(trs_restituted_group)
-                        trs_raw.extend(trs_raw_group)
-
-                except NotFound as e:
-                    exceptions.append((in_channels, out_channels, e))
-
-            if not trs_projected:
-                err = []
-                for (in_channels, out_channels, e) in exceptions:
-                    sin = ', '.join(c.name for c in in_channels)
-                    sout = ', '.join(c.name for c in out_channels)
-                    err.append('(%s) -> (%s): %s' % (sin, sout, e))
-
-                raise NotFound('\n'.join(err))
-
-            for tr in trs_projected:
-                sc = self.station_corrections.get(tr.nslc_id, None)
-                if sc:
-                    if self.apply_correction_factors:
-                        tr.ydata /= sc.factor
-
-                    if self.apply_correction_delays:
-                        tr.shift(-sc.delay)
-
-                if tmin is not None and tmax is not None:
-                    tr.chop(tmin, tmax)
-
-            if syn_test:
-                trs_projected_synthetic = []
-                for tr in trs_projected:
-                    if tr.channel == channel:
-                        tr_syn = syn_test.get_waveform(
-                            tr.nslc_id, tmin, tmax,
-                            tfade=tfade, freqlimits=freqlimits)
-
-                        if tr_syn:
-                            if syn_test.real_noise_scale != 0.0:
-                                tr_syn = tr_syn.copy()
-                                tr_noise = tr.copy()
-                                tr_noise.set_ydata(
-                                    tr_noise.get_ydata()
-                                    * syn_test.real_noise_scale)
-
-                                tr_syn.add(tr_noise)
-
-                            trs_projected_synthetic.append(tr_syn)
-
-                trs_projected = trs_projected_synthetic
-
-            if cache is not None:
-                for tr in trs_projected:
-                    cache[tr.nslc_id + cache_k] = tr
-
-            tr_return = None
-            for tr in trs_projected:
+        except Exception:
+            exceptions.extend('not found')
+        if len(trs_raw_group) != 0:
+            for tr in trs_raw_group:
                 if tr.channel == channel:
-                    tr_return = tr
+                    if tr is not None:
+                        tr_return = tr
+                        if tr_return:
+                            return tr
+        else:
+            err = []
+            raise NotFound('not found')
 
-            if debug:
-                return trs_projected, trs_restituted, trs_raw, tr_return
-
-            elif tr_return:
-                return tr_return
-
-            else:
-                raise NotFound(
-                    'waveform not available', station.nsl() + (channel,))
-
-        except NotFound:
-            if cache is not None:
-                cache[nslc + cache_k] = None
-            raise
-
-    def get_waveform(self, obj, tinc_cache=None, **kwargs):
+    def get_waveform(self, obj, tinc_cache=None, deltat=2., **kwargs):
         tmin = kwargs['tmin']
         tmax = kwargs['tmax']
         if tinc_cache is not None:
@@ -892,12 +817,10 @@ class Dataset(object):
 
         kwargs['tmin'] = tmin_r
         kwargs['tmax'] = tmax_r
+        tr = self._get_waveform(obj, **kwargs)
 
-        if kwargs.get('debug', None):
-            return self._get_waveform(obj, **kwargs)
-        else:
-            tr = self._get_waveform(obj, **kwargs)
-            return tr.chop(tmin, tmax, inplace=False)
+        tr.downsample_to(deltat, snap=True, allow_upsample_max=5)
+        return tr.chop(tmin, tmax, inplace=False)
 
     def get_events(self, magmin=None, event_names=None):
         evs = []
@@ -1022,7 +945,7 @@ class DatasetConfig(HasPaths):
         default=False,
         help='Work around displaced sampling issues.')
     extend_incomplete = Bool.T(
-        default=False,
+        default=True,
         help='Extend incomplete seismic traces.')
     picks_paths = List.T(
         Path.T())

@@ -650,7 +650,21 @@ def export(
             guts.dump(source, stream=out)
 
         elif type == 'event':
-            ev = problem.get_source(x).pyrocko_event()
+            print(x)
+            from pyrocko import model
+            ev = problem.get_source(x)
+            print(ev)
+            ev = model.Event(
+            lat=ev.lat,
+            lon=ev.lon,
+            time=ev.time,
+            name=ev.name,
+            depth=ev.depth,
+            length=ev.length,
+            width=ev.width,
+            nucleation_x=ev.nucleation_x,
+            nucleation_y=ev.nucleation_y)
+            ev = ev.pyrocko_event()
             model.dump_events([ev], stream=out)
 
         elif type == 'event-yaml':

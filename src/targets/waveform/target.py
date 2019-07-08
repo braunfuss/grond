@@ -14,9 +14,40 @@ from grond.meta import GrondError, nslcs_to_patterns
 
 from ..base import (MisfitConfig, MisfitTarget, MisfitResult, TargetGroup)
 from grond.meta import has_get_plot_classes
-
+import cmath
+from scipy import signal
 guts_prefix = 'grond'
 logger = logging.getLogger('grond.targets.waveform.target')
+
+def proto2zpk(magnification, damping, period):
+    zeros = [0., 0.] #velocity or displacment in data?
+    omega0 = 2.0 * math.pi / period
+    preal = -damping*omega0
+    pimag = 1.0J * omega0 * cmath.sqrt(1.0-damping**2)
+    poles = [preal + pimag, preal - pimag]
+    return zeros, poles, magnification
+
+def loadResponses():
+    ResponseFile = 'responses.txt'
+    responses = {}
+    for line in open(ResponseFile, 'r'):
+        t = line.split()
+        logger.info(t)
+
+        if len(t) == 8:
+            sta, cha, instrument, lat, lon, mag, damp, period = t
+            if damp == 'No_damping':
+                damp = 0.001
+            lat, lon, mag, damp, period = [float(x) for x in (lat, lon,
+                                           mag, damp, period)]
+
+            z, p, k = proto2zpk(mag, damp, period)
+
+            b, a = signal.zpk2tf(z, p, k)
+            responses[sta, cha] = (z, p, k), (b, a)
+            logger.debug('%s %s %s %s %s %s %s', sta, cha, z, p, k, b, a)
+
+    return responses
 
 
 class DomainChoice(StringChoice):
@@ -310,9 +341,9 @@ class WaveformMisfitTarget(gf.Target, MisfitTarget):
         tmin_fit = source.time + store.t(config.tmin, source, self)
         tmax_fit = source.time + store.t(config.tmax, source, self)
         if config.fmin > 0.0:
-            tfade = 1.0/config.fmin
+            tfade = 0.
         else:
-            tfade = 1.0/config.fmax
+            tfade = 0.
 
         if config.tfade is None:
             tfade_taper = tfade
@@ -396,26 +427,23 @@ class WaveformMisfitTarget(gf.Target, MisfitTarget):
 
         freqlimits = self.get_freqlimits()
 
-        if config.quantity == 'displacement':
-            syn_resp = None
-        elif config.quantity == 'velocity':
+        if config.quantity == 'velocity':
             syn_resp = trace.DifferentiationResponse(1)
         elif config.quantity == 'acceleration':
             syn_resp = trace.DifferentiationResponse(2)
-        elif config.quantity == 'historical':
+        elif config.quantity == 'displacement':
             tr = tr_syn
-            request_response = stationxml.load_xml(filename='stations_historical.xml')
-            stations = request_response.get_pyrocko_stations()
-            nstations = [s for s in stations]
-            polezero_response = request_response.get_pyrocko_response(
-                                nslc=tr.nslc_id,
-                                timespan=(tr.tmin, tr.tmax),
-                                fake_input_units='M')
-
+            Responses = loadResponses()
+            try:
+                (z, p, k), (b, a) = Responses[tr.station, tr.channel]
+                hist_response = trace.PoleZeroResponse(z, p, k)
+            except KeyError:
+                hist_response = None
         else:
             GrondError('Unsupported quantity: %s' % config.quantity)
-
-        tr_syn = tr_syn.transfer(10., (0.005, 0.006, 166., 200.), polezero_response, False, False)
+        tr_syn = tr_syn.transfer(10., (0.005, 0.006, 166., 200.),
+                                 hist_response, False, False)
+        tr_syn.ydata = tr_syn.ydata*10000.
 
         tr_syn.chop(tmin_fit - 2*tfade, tmax_fit + 2*tfade)
 
@@ -426,7 +454,7 @@ class WaveformMisfitTarget(gf.Target, MisfitTarget):
             tr_obs = ds.get_waveform(
                 nslc,
                 quantity=config.quantity,
-                tinc_cache=1.0/(config.fmin or 0.1*config.fmax),
+                tinc_cache=1.0,
                 tmin=tmin_fit+tobs_shift-tfade,
                 tmax=tmax_fit+tobs_shift+tfade,
                 tfade=tfade,
@@ -434,6 +462,8 @@ class WaveformMisfitTarget(gf.Target, MisfitTarget):
                 deltat=tr_syn.deltat,
                 cache=True,
                 backazimuth=self.get_backazimuth_for_waveform())
+            tr_obs.bandpass(3, 0.001, 0.2, demean=True)
+            tr_syn.bandpass(3, 0.001, 0.2, demean=True)
 
             if tobs_shift != 0.0:
                 tr_obs = tr_obs.copy()
