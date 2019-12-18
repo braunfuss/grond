@@ -333,10 +333,15 @@ class Problem(Object):
 
     def get_gf_store(self, target):
         if self.get_engine() is None:
-            raise GrondError('Cannot get GF Store, modelling is not set up!')
+            raise GrondError('Cannot get GF Store, modelling is not set up.')
         return self.get_engine().get_store(target.store_id)
 
-    def random_uniform(self, xbounds, rstate):
+    def random_uniform(self, xbounds, rstate, fixed_magnitude=None):
+        if fixed_magnitude is not None:
+            raise GrondError(
+                'Setting fixed magnitude in random model generation not '
+                'supported for this type of problem.')
+
         x = rstate.uniform(0., 1., self.nparameters)
         x *= (xbounds[:, 1] - xbounds[:, 0])
         x += xbounds[:, 0]
@@ -577,6 +582,7 @@ class Problem(Object):
 
         return self._family_mask
 
+<<<<<<< HEAD
     def evaluate(self, x, mask=None, result_mode='full', targets=None, nsources=None):
         patches = []
         outlines = []
@@ -588,6 +594,12 @@ class Problem(Object):
                 outlines.append(source.outline())
         else:
                 source = self.get_source(x)
+=======
+    def evaluate(self, x, mask=None, result_mode='full', targets=None,
+                 nthreads=1):
+        source = self.get_source(x)
+        engine = self.get_engine()
+>>>>>>> 5e196b4ca85840da0d0047688854c6da074044a9
 
         engine = self.get_engine()
         sources = CombiSource(subsources=patches)
@@ -616,8 +628,13 @@ class Problem(Object):
 
         modelling_targets_unique = list(u2m_map.keys())
 
+<<<<<<< HEAD
         resp = engine.process(sources, modelling_targets_unique,
                               nthreads=self.nthreads)
+=======
+        resp = engine.process(source, modelling_targets_unique,
+                              nthreads=nthreads)
+>>>>>>> 5e196b4ca85840da0d0047688854c6da074044a9
         modelling_results_unique = list(resp.results_list[0])
 
         modelling_results = [None] * len(modelling_targets)
@@ -647,8 +664,9 @@ class Problem(Object):
 
         return results
 
-    def misfits(self, x, mask=None):
-        results = self.evaluate(x, mask=mask, result_mode='sparse')
+    def misfits(self, x, mask=None, nthreads=1):
+        results = self.evaluate(
+            x, mask=mask, result_mode='sparse', nthreads=nthreads)
         misfits = num.full((self.nmisfits, 2), num.nan)
 
         imisfit = 0
@@ -759,10 +777,10 @@ class ModelHistory(object):
 
         if not op.exists(rundir):
             raise ProblemDataNotAvailable(
-                'Directory %s does not exist!' % rundir)
+                'Directory does not exist: %s' % rundir)
         for f in _rundir_files:
             if not op.exists(op.join(rundir, f)):
-                raise ProblemDataNotAvailable('File %s not found!' % f)
+                raise ProblemDataNotAvailable('File not found: %s' % f)
 
     @classmethod
     def follow(cls, path, nchains=None, wait=20.):

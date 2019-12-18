@@ -6,20 +6,21 @@ import time
 import copy
 import shutil
 import glob
+import math
 import os.path as op
 import numpy as num
 
-from pyrocko.guts import Object, String, Float, List
+from pyrocko.guts import Object, String, Float, List, clone
 from pyrocko import gf, trace, guts, util, weeding
 from pyrocko import parimap, model, marker as pmarker
 
 from .dataset import NotFound, InvalidObject
 from .problems.base import Problem, load_problem_info_and_data, \
-    load_problem_data
+    load_problem_data, ProblemDataNotAvailable
 
 from .optimisers.base import BadProblem
 from .targets.waveform.target import WaveformMisfitResult
-from .meta import expand_template, GrondError
+from .meta import expand_template, GrondError, selected
 from .environment import Environment
 from .monitor import GrondMonitor
 
@@ -81,7 +82,8 @@ def forward(env):
     payload = []
     if env.have_rundir():
         env.setup_modelling()
-        xbest = env.get_history().get_best_model()
+        history = env.get_history(subset='harvest')
+        xbest = history.get_best_model()
         problem = env.get_problem()
         ds = env.get_dataset()
         payload.append((ds, problem, xbest))
@@ -428,7 +430,23 @@ def go(environment,
        nparallel=1, status='state', nthreads=0):
 
     g_data = (environment, force, preserve,
-              status, nparallel, nthreads)
+              status, nparallel, nthreads, False)
+    g_state[id(g_data)] = g_data
+
+    nevents = environment.nevents_selected
+    for x in parimap.parimap(
+            process_event,
+            range(environment.nevents_selected),
+            [id(g_data)] * nevents,
+            nprocs=nparallel):
+
+        pass
+
+
+def continue_run(environment, force=False, preserve=False,
+                 nparallel=1, status='state', nthreads=0):
+    g_data = (environment, force, preserve,
+              status, nparallel, nthreads, True)
     g_state[id(g_data)] = g_data
 
     nevents = environment.nevents_selected
@@ -443,12 +461,12 @@ def go(environment,
 
 def process_event(ievent, g_data_id):
 
-    environment, force, preserve, status, nparallel, nthreads = \
+    env, force, preserve, status, nparallel, nthreads, continue_run = \
         g_state[g_data_id]
 
-    config = environment.get_config()
-    event_name = environment.get_selected_event_names()[ievent]
-    nevents = environment.nevents_selected
+    config = env.get_config()
+    event_name = env.get_selected_event_names()[ievent]
+    nevents = env.nevents_selected
     tstart = time.time()
 
     ds = config.get_dataset(event_name)
@@ -464,31 +482,46 @@ def process_event(ievent, g_data_id):
     rundir = expand_template(
         config.rundir_template,
         dict(problem_name=problem.name))
-    environment.set_rundir_path(rundir)
+    env.set_rundir_path(rundir)
+    nold_rundirs = len(glob.glob(rundir + '*'))
 
-    if op.exists(rundir):
+    if op.exists(rundir) and not continue_run:
         if preserve:
-            nold_rundirs = len(glob.glob(rundir + '*'))
-            shutil.move(rundir, rundir+'-old-%d' % (nold_rundirs))
+            shutil.move(rundir, rundir+'-old-%d' % nold_rundirs)
         elif force:
             shutil.rmtree(rundir)
         else:
-            logger.warn('Skipping problem "%s": rundir already exists: %s' %
-                        (problem.name, rundir))
+            logger.warn('Skipping problem "%s": rundir already exists: %s',
+                        problem.name, rundir)
             return
 
+    if op.exists(rundir) and continue_run:
+        logger.info(
+            'Continuing event %i / %i', ievent + 1, nevents)
+
+        env_old = Environment(rundir)
+
+        history = env_old.get_history()
+        targets = env_old.get_problem().targets
+        for target in targets:
+            target.set_dataset(ds)
+
+        problem.targets = targets
+
+        if preserve:
+            shutil.copytree(rundir, rundir+'-old-%d' % nold_rundirs)
+
+    elif not op.exists(rundir) and continue_run:
+        logger.warn('Cannot find rundir %s to continue...', rundir)
+        return
+
+    else:
+        logger.info(
+            'Starting event %i / %i', ievent+1, nevents)
+        history = None
+
     util.ensuredir(rundir)
-
-    logger.info(
-        'Starting event %i / %i' % (ievent+1, nevents))
-
-    logger.info('Rundir: %s' % rundir)
-
-    logger.info('Analysing problem "%s".' % problem.name)
-
-    for analyser_conf in config.analyser_configs:
-        analyser = analyser_conf.get_analyser()
-        analyser.analyse(problem, ds)
+    logger.info('Rundir: %s', rundir)
 
     basepath = config.get_basepath()
     config.change_basepath(rundir)
@@ -498,7 +531,13 @@ def process_event(ievent, g_data_id):
     optimiser = config.optimiser_config.get_optimiser()
     optimiser.set_nthreads(nthreads)
 
-    optimiser.init_bootstraps(problem)
+    if not continue_run:
+        logger.info('Analysing problem "%s".', problem.name)
+        for analyser_conf in config.analyser_configs:
+            analyser = analyser_conf.get_analyser()
+            analyser.analyse(problem, ds)
+        optimiser.init_bootstraps(problem)
+
     problem.dump_problem_info(rundir)
 
     monitor = None
@@ -522,7 +561,8 @@ def process_event(ievent, g_data_id):
 
         optimiser.optimise(
             problem,
-            rundir=rundir)
+            rundir=rundir,
+            history=history)
 
         harvest(rundir, problem, force=True)
 
@@ -538,10 +578,10 @@ def process_event(ievent, g_data_id):
 
     tstop = time.time()
     logger.info(
-        'Stop %i / %i (%g min)' % (ievent+1, nevents, (tstop - tstart)/60.))
+        'Stop %i / %i (%g min)', ievent+1, nevents, (tstop - tstart)/60.)
 
     logger.info(
-        'Done with problem "%s", rundir is "%s".' % (problem.name, rundir))
+        'Done with problem "%s", rundir is "%s".', problem.name, rundir)
 
 
 class ParameterStats(Object):
@@ -561,10 +601,22 @@ class ParameterStats(Object):
         kwargs.update(zip(self.T.propnames, args))
         Object.__init__(self, **kwargs)
 
+    def get_values_dict(self):
+        return dict(
+            (self.name+'.' + k, getattr(self, k))
+            for k in self.T.propnames
+            if k != 'name')
+
 
 class ResultStats(Object):
     problem = Problem.T()
     parameter_stats_list = List.T(ParameterStats.T())
+
+    def get_values_dict(self):
+        d = {}
+        for ps in self.parameter_stats_list:
+            d.update(ps.get_values_dict())
+        return d
 
 
 def make_stats(problem, models, gms, pnames=None):
@@ -590,6 +642,15 @@ def make_stats(problem, models, gms, pnames=None):
     return rs
 
 
+def try_add_location_uncertainty(data, types):
+    vs = [data.get(k, None) for k in (
+        'north_shift.std', 'east_shift.std', 'depth.std')]
+
+    if None not in vs:
+        data['location_uncertainty'] = math.sqrt(sum(v**2 for v in vs))
+        types['location_uncertainty'] = float
+
+
 def format_stats(rs, fmt):
     pname_to_pindex = dict(
         (p.name, i) for (i, p) in enumerate(rs.parameter_stats_list))
@@ -605,7 +666,9 @@ def format_stats(rs, fmt):
     return ' '.join('%16.7g' % v for v in values)
 
 
-def export(what, rundirs, type=None, pnames=None, filename=None):
+def export(
+        what, rundirs, type=None, pnames=None, filename=None, selection=None):
+
     if pnames is not None:
         pnames_clean = [pname.split('.')[0] for pname in pnames]
         shortform = all(len(pname.split('.')) == 2 for pname in pnames)
@@ -666,11 +729,38 @@ def export(what, rundirs, type=None, pnames=None, filename=None):
     header = None
     for rundir in rundirs:
         env = Environment(rundir)
-        history = env.get_history(subset='harvest')
+        info = env.get_run_info()
+
+        try:
+            history = env.get_history(subset='harvest')
+        except ProblemDataNotAvailable as e:
+            logger.error(
+                'Harvest not available (Did the run succeed?): %s' % str(e))
+            continue
 
         problem = history.problem
         models = history.models
         misfits = history.get_primary_chain_misfits()
+
+        if selection:
+            rs = make_stats(
+                problem, models,
+                history.get_primary_chain_misfits())
+
+            data = dict(tags=info.tags)
+            types = dict(tags=(list, str))
+
+            for k, v in rs.get_values_dict().items():
+                data[k] = v
+                types[k] = float
+
+            try_add_location_uncertainty(data, types)
+
+            if not selected(selection, data=data, types=types):
+                continue
+
+        else:
+            rs = None
 
         if type == 'vector':
             pnames_take = pnames_clean or \
@@ -705,15 +795,16 @@ def export(what, rundirs, type=None, pnames=None, filename=None):
             dump(x_mean, gm_mean, indices)
 
         elif what == 'ensemble':
-            gms = misfits
-            isort = num.argsort(gms)
+            isort = num.argsort(misfits)
             for i in isort:
-                dump(models[i], gms[i], indices)
+                dump(models[i], misfits[i], indices)
 
         elif what == 'stats':
-            rs = make_stats(problem, models,
-                            history.get_primary_chain_misfits(),
-                            pnames_clean)
+            if not rs:
+                rs = make_stats(problem, models,
+                                history.get_primary_chain_misfits(),
+                                pnames_clean)
+
             if shortform:
                 print(' ', format_stats(rs, pnames), file=out)
             else:
@@ -731,6 +822,7 @@ __all__ = '''
     harvest
     cluster
     go
+    continue_run
     get_event_names
     check
     export

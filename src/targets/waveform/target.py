@@ -128,16 +128,25 @@ class WaveformTargetGroup(TargetGroup):
         origin = event
         targets = []
 
-        for st in ds.get_stations():
-            for cha in self.channels:
+        stations = ds.get_stations()
+        if len(stations) == 0:
+            logger.warning(
+                'No stations found to create waveform target group.')
 
+        for st in ds.get_stations():
+            logger.debug('Selecting waveforms for station %s.%s.%s' % st.nsl())
+            for cha in self.channels:
                 nslc = st.nsl() + (cha,)
+
+                logger.debug('Selecting waveforms for %s.%s.%s.%s' % nslc)
 
                 target = WaveformMisfitTarget(
                     quantity='displacement',
                     codes=nslc,
                     lat=st.lat,
                     lon=st.lon,
+                    north_shift=st.north_shift,
+                    east_shift=st.east_shift,
                     depth=st.depth,
                     interpolation=self.interpolation,
                     store_id=self.store_id,

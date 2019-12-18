@@ -46,6 +46,7 @@ subcommand_descriptions = {
     'events': 'print available event names for given configuration',
     'check': 'check data and configuration',
     'go': 'run Grond optimisation',
+    'continue': 'continue a Grond optimisation.',
     'forward': 'run forward modelling',
     'harvest': 'manually run harvesting',
     'cluster': 'run cluster analysis on result ensemble',
@@ -69,6 +70,7 @@ subcommand_usages = {
     'events': 'events <configfile>',
     'check': 'check <configfile> <eventnames> ... [options]',
     'go': 'go <configfile> <eventnames> ... [options]',
+    'continue': 'continue <configfile> <eventnames> ... [options]',
     'forward': (
         'forward <rundir> [options]',
         'forward <configfile> <eventnames> ... [options]'),
@@ -120,6 +122,7 @@ Subcommands:
     events          %(events)s
     check           %(check)s
     go              %(go)s
+    continue        %(continue)s
     forward         %(forward)s
     harvest         %(harvest)s
     cluster         %(cluster)s
@@ -399,7 +402,7 @@ def command_scenario(args):
             '--lon', dest='lon', type=float, default=33.3,
             help='center latitude of the scenario (default: %default)')
         parser.add_option(
-            '--radius', dest='radius', type=float, default=200.,
+            '--radius', dest='radius', type=float, default=100.,
             help='radius of the the scenario in [km] (default: %default)')
         parser.add_option(
             '--gf-waveforms', dest='store_waveforms', type=str,
@@ -736,7 +739,7 @@ def command_go(args):
                  'if set to more than one, --status=quiet is implied.')
         parser.add_option(
             '--threads', dest='nthreads', type=int, default=1,
-            help='set number of threads per process (default: 1).'
+            help='set number of threads per process (default: 1). '
                  'Set to 0 to use all available cores.')
 
     parser, options, args = cl_parse('go', args, setup)
@@ -758,6 +761,48 @@ def command_go(args):
         if len(env.get_selected_event_names()) == 1:
             logger.info(CLIHints(
                 'go', rundir=env.get_rundir_path()))
+
+    except grond.GrondError as e:
+        die(str(e))
+
+
+def command_continue(args):
+
+    from grond.environment import Environment
+
+    def setup(parser):
+        parser.add_option(
+            '--no-preserve', dest='no_preserve', action='store_true',
+            help='do not preserve old rundir')
+        parser.add_option(
+            '--status', dest='status', default='state',
+            type='choice', choices=['state', 'quiet'],
+            help='status output selection (choices: state, quiet, default: '
+                 'state)')
+        parser.add_option(
+            '--parallel', dest='nparallel', type=int, default=1,
+            help='set number of events to process in parallel, '
+                 'if set to more than one, --status=quiet is implied.')
+        parser.add_option(
+            '--threads', dest='nthreads', type=int, default=1,
+            help='set number of threads per process (default: 1). '
+                 'Set to 0 to use all available cores.')
+
+    parser, options, args = cl_parse('continue', args, setup)
+
+    try:
+        env = Environment(args)
+
+        status = options.status
+        if options.nparallel != 1:
+            status = 'quiet'
+
+        grond.continue_run(
+            env,
+            preserve=~bool(options.no_preserve),
+            status=status,
+            nparallel=options.nparallel,
+            nthreads=options.nthreads)
 
     except grond.GrondError as e:
         die(str(e))
@@ -985,6 +1030,11 @@ def command_export(args):
                  '"percentile84", "maximum".')
 
         parser.add_option(
+            '--selection', dest='selection', metavar='EXPRESSION',
+            help='only export data for runs which match EXPRESSION. '
+                 'Example expression: "tags_contains:excellent,good"')
+
+        parser.add_option(
             '--output', dest='filename', metavar='FILE',
             help='write output to FILE')
 
@@ -1015,7 +1065,8 @@ def command_export(args):
             dirnames,
             filename=options.filename,
             type=options.type,
-            pnames=pnames)
+            pnames=pnames,
+            selection=options.selection)
 
     except grond.GrondError as e:
         die(str(e))

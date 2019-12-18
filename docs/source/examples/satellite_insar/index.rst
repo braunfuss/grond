@@ -17,7 +17,7 @@ To repeat this exercise on your machine, you should first `install Pyrocko
 The project folder
 ------------------
 
-The project folder now contains a configuration file for Grond and some utility scripts to download pre-calculated Green's functions and InSAR data:
+The project folder now contains a configuration file for Grond and some utility scripts to download pre-calculated static Green's functions and InSAR data:
 
 .. code-block :: sh
     
@@ -56,28 +56,28 @@ The example includes a script to download unwrapped InSAR data from Pyrocko's se
     
     bin/download_insar_data.sh
 
-This will download (1) an ascending and (2) descending scene to :file:`data/events/2009laquila/insar/`. Data is held in ``kite`` container format.
+This will download (1) an ascending and (2) descending scene to :file:`data/events/2009laquila/insar/`. Data is held in Kite container format.
 
-InSAR data preparation with ``kite``
-------------------------------------
+Unwrapped InSAR displacement preparation with Kite
+--------------------------------------------------
 
-The downloaded data has to be prepared for the inversion using the ``kite`` tool. To install the software, follow the `install instructions <https://pyrocko.org/docs/kite/current/installation.html>`_.
+The downloaded data has to be prepared for the inversion with the Kite tool. To install the software, follow the `install instructions <https://pyrocko.org/docs/kite/current/installation.html>`_.
 
 Once the software is installed we need to parametrize the two scenes:
 
-    1. The data sub-sampling quadtree. This efficiently reduces the resolution of the scene, yet conserves the important data information. A reduced number of samples will benefit the forward-modelling computing cost.
+    1. The data sub-sampling quadtree: This efficiently reduces the resolution of the scene, yet conserves the important data information. A reduced number of samples will benefit the forward-modelling computing cost.
 
-    2. Estimate the spatial data covariance. By looking at the spatial noise of the scene we can estimate the data covariance. ``kite`` enables us to calculate a covariance matrix for the quadtree, which will be used as a weight matrix in our Grond inversion.
+    2. Estimate the spatial data covariance: By looking at the spatial noise of the scene we can estimate the data covariance. Kite enables us to calculate a covariance matrix for the quadtree, which will be used as a weight matrix in our Grond inversion.
 
 
-Let's start by parametrizing the quadtree: find a good parameters for the sub-sampling quadtree by tuning four parameters:
+We start by parametrizing the quadtree: find a good parameters for the sub-sampling quadtree by tuning four parameters:
 
     1. ``epsilon``, the variance threshold in each quadtree's tile.
     2. ``nan_fraction``, percentage of allowed NaN pixels per tile.
     3. ``tile_size_min``, minimum size of the tiles.
     4. ``tile_size_max``, maximum size of the tiles.
 
-Start kite's :program:`spool` GUI with:
+Start Kite's :program:`spool` GUI with:
 
 .. code-block :: sh
 
@@ -85,25 +85,22 @@ Start kite's :program:`spool` GUI with:
     # descending scene:
     spool data/events/2009laquila/insar/dsc_insar
 
-Now we can parametrize the quadtree visually:
-
 .. figure:: ../../images/example_spool-quadtree.png
     :name: Fig. 1 Example InSAR
     :width: 100%
     :align: center
     
-    **Figure 1**: Parametrizing the quadtree with :command:`spool`. 
+    **Figure 1**: Parametrizing the quadtree. This efficiently sub-samples the high-resolution surface displacement data. (command :command:`spool`; `Kite`_ toolbox).
 
 .. note ::
     
-    Delete unnecessary tiles of the quadtree by right-click select, and delete with :kbd:`Del`.
+    Delete unnecessary tiles of the quadtree by right-clicking, and delete with :kbd:`Del`.
 
-Once you are done, click on the Tag :guilabel:`scene.covariance`. Now we will define a window for the data's noise. The window's data will be use to calculating the spatial covariance of the scene(for details see: reference).
+Once you are happy with the sub-sampling, click on the next tab :guilabel:`Scene.covariance`. Now we will define a window for the data's noise. The window's data will be use for calculating the spatial covariance of the scene (see `details <https://pyrocko.org/kite/docs/current/examples/covariance.html>`_).
 
-Use a window far away from the earthquake signal to capture true noise, yet the bigger the window is, the better the data covariance will be estimated.
-In figure 2.
+Use a spatial window far away from the earthquake signal to capture only the noise, yet the bigger the window is, the better the data covariance estimation.
 
-On the left hand side of the GUI you find parameters to tune the spatial covariance analysis. We now can fit an analytical model to the empirical covariance: :math:`\exp(d)` and :math:`\exp + \sin`. For more details on the method, see `kite's documentation <https://pyrocko.org/docs/kite/current>`_.
+On the left hand side of the GUI you find parameters to tune the spatial covariance analysis. We now can fit an analytical model to the empirical covariance: :math:`\exp(d)` and :math:`\exp + \sin`. For more details on the method, see `Kite's documentation <https://pyrocko.org/docs/kite/current>`_.
 
 .. figure:: ../../images/example_spool-covariance.png
     :name: Fig. 2 Example InSAR

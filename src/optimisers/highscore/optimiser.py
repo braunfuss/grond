@@ -606,19 +606,29 @@ class HighScoreOptimiser(Optimiser):
 
             self._tlog_last = t
 
-    def optimise(self, problem, rundir=None):
+    def optimise(self, problem, rundir=None, history=None):
         if rundir is not None:
             self.dump(filename=op.join(rundir, 'optimiser.yaml'))
 
-        history = ModelHistory(problem,
-                               nchains=self.nchains,
-                               path=rundir, mode='w')
+        if not history:
+            history = ModelHistory(problem,
+                                   nchains=self.nchains,
+                                   path=rundir, mode='w')
+
         chains = self.chains(problem, history)
+
+        if history.mode == 'r':
+            if history.nmodels == self.niterations:
+                return
+            logger.info('Continuing run at %d iterations...', history.nmodels)
+            history.mode = 'w'
+
+            chains.goto()
 
         niter = self.niterations
         isbad_mask = None
         self._tlog_last = 0
-        for iiter in range(niter):
+        for iiter in range(history.nmodels, niter):
             iphase, phase, iiter_phase = self.get_sampler_phase(iiter)
             self.log_progress(problem, iiter, niter, phase, iiter_phase)
 
@@ -630,7 +640,8 @@ class HighScoreOptimiser(Optimiser):
             else:
                 isok_mask = None
 
-            misfits = problem.misfits(sample.model, mask=isok_mask)
+            misfits = problem.misfits(
+                sample.model, mask=isok_mask, nthreads=self._nthreads)
 
             bootstrap_misfits = problem.combine_misfits(
                 misfits,

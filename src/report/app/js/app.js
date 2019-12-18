@@ -336,14 +336,14 @@ angular.module('reportApp', ['ngRoute', 'ngSanitize'])
         return funcs;
     })
 
-    .controller('ReportListController', function($scope, YamlMultiDoc, ReportList) {
+    .controller('ReportListController', function($scope, $filter, YamlMultiDoc, ReportList) {
         var rl = ReportList;
         $scope.rl = rl;
         rl.reload();
 
         var get_order_key_funcs = {
             'event': function(x) {
-                return x.get_event().name;
+                return x.get_event().name + '.' + x.problem_name;
             },
             'time': function(x) {
                 return x.get_event().time;
@@ -415,7 +415,7 @@ angular.module('reportApp', ['ngRoute', 'ngSanitize'])
                 }
                 ordered_lines[order_skey] = lines;
             }
-            return ordered_lines[order_skey];
+            return $filter('filter')(ordered_lines[order_skey], $scope.list_search_keyword);
         };
 
     })
@@ -554,7 +554,7 @@ angular.module('reportApp', ['ngRoute', 'ngSanitize'])
                 return;
             }
             if (!groups.hasOwnProperty(problem_name)) {
-                console.log('load', problem_name, get_path(problem_name));
+                /* console.log('load', problem_name, get_path(problem_name)); */
                 if ($scope.primary_problem === null) {
                     $scope.primary_problem = problem_name;
                 }

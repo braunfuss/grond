@@ -46,7 +46,7 @@ class GNSSTargetMisfitPlot(PlotConfig):
 
     def make(self, environ):
         cm = environ.get_plot_collection_manager()
-        history = environ.get_history()
+        history = environ.get_history(subset='harvest')
         optimiser = environ.get_optimiser()
         ds = environ.get_dataset()
 
@@ -167,8 +167,7 @@ displacements derived from best model (red).
                 vertical=vertical,
                 labels=False)
 
-            if isinstance(problem, CMTProblem) \
-                    or isinstance(problem, VLVDProblem):
+            if isinstance(problem, CMTProblem):
                 from pyrocko import moment_tensor
                 from pyrocko.plot import gmtpy
 
@@ -197,7 +196,7 @@ displacements derived from best model (red).
                     t=60,
                     *m.jxyr)
 
-            elif isinstance(problem, VolumePointProblem):
+            elif isinstance(problem, VLVDProblem):
                 ev_lat, ev_lon = event.effective_latlon
                 dV = abs(source.volume_change)
                 sphere_radius = num.cbrt(dV / (4./3.*num.pi))

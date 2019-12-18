@@ -487,8 +487,11 @@ traces.''')
             dtraces.append([])
 
             for target, result in zip(problem.targets, results):
+                w = target.get_combined_weight()
+
                 if isinstance(result, gf.SeismosizerError) or \
-                        not isinstance(target, WaveformMisfitTarget):
+                        not isinstance(target, WaveformMisfitTarget) or \
+                        not num.all(num.isfinite(w)):
 
                     dtraces[-1].extend([None] * target.nmisfits)
                     continue
@@ -496,7 +499,6 @@ traces.''')
                 itarget, itarget_end = target_index[target]
                 assert itarget_end == itarget + 1
 
-                w = target.get_combined_weight()
 
                 if target.misfit_config.domain == 'cc_max_norm':
                     tref = (
