@@ -75,7 +75,7 @@ the upper fault edge.
         for target in gnss_targets:
             target.set_dataset(ds)
 
-        xbest = history.get_best_model()
+        xbest = history.get_best_model(0)
         source = history.get_best_source()
 
         results = problem.evaluate(

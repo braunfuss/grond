@@ -81,19 +81,19 @@ edge marking the upper fault edge. Complete data extent is shown.
         for target in sat_targets:
             target.set_dataset(ds)
 
-        
+
         best_model = history.get_best_model()
-        
+
         gms = problem.combine_misfits(history.misfits)
         isort = num.argsort(gms)
         gms = gms[isort]
         #nsources = problem.nsources #help
-        nsources = 3
+        nsources = 2
         if nsources is not None:
             sources = []
             for i in range(nsources):
                 sources.append(history.get_best_source(i))
-                
+
             source = sources[0]
         else:
             source = problem.get_source(0)

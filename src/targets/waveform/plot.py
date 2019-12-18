@@ -231,7 +231,9 @@ class CheckWaveformsPlot(PlotConfig):
         else:
             for _ in range(self.n_random_synthetics):
                 x = problem.get_random_model()
-                sources.append(problem.get_source(x))
+                nsources = 2
+                for i in range(0, nsources):
+                    sources.append(problem.get_source(x, i))
                 results = problem.evaluate(x)
                 results_list.append(results)
 
@@ -479,7 +481,7 @@ traces.''')
         for imodel in range(nmodels):
             model = models[imodel, :]
 
-            source = problem.get_source(model)
+            source = problem.get_source(model, 0)
             results = problem.evaluate(model)
 
             dtraces.append([])
@@ -880,8 +882,9 @@ box, red).
 
         w_max = num.nanmax(ws)
         gcm_max = num.nanmax(gcms)
-
-        source = problem.get_source(xbest)
+        nsources = 2
+        for i in range(0, nsources):
+            source = problem.get_source(xbest, i)
 
         target_to_result = {}
         all_syn_trs = []
