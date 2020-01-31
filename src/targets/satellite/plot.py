@@ -94,7 +94,7 @@ edge marking the upper fault edge. Complete data extent is shown.
         isort = num.argsort(gms)
         gms = gms[isort]
         #nsources = problem.nsources #help
-        nsources = 3
+        nsources = 2
         if nsources is not None:
             sources = []
             for i in range(nsources):

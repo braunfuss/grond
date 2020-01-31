@@ -585,7 +585,7 @@ class Problem(Object):
     def evaluate(self, x, mask=None, result_mode='full', targets=None, nsources=None, nthreads=1):
         patches = []
         outlines = []
-        self.nsources = 3
+        self.nsources = 2
         if self.nsources:
             for i in range(self.nsources):
                 source = self.get_source(x, i)

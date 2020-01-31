@@ -701,7 +701,7 @@ def export(
         print('#', ' '.join(['%16s' % x for x in pnames]), file=out)
 
     def dump(x, gm, indices):
-        nsources = 3
+        nsources = 2
         sources = []
         events = []
         if type == 'vector':
