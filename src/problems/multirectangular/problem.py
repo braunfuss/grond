@@ -65,15 +65,7 @@ class MultiRectangularProblem(Problem):
         problem_parameters.append(Parameter('strike%s' % i, 'deg', label='Strike%s'%i))
         problem_parameters.append(Parameter('rake%s' % i, 'deg', label='Rake%s'%i))
         problem_parameters.append(Parameter('slip%s' % i, 'm', label='Slip%s'%i))
-        problem_parameters.append(Parameter('nucleation_x%s' % i, 'offset', label='Nucleation X%s'%i))
-        problem_parameters.append(Parameter('nucleation_y%s' % i, 'offset', label='Nucleation Y%s'%i))
-        problem_parameters.append(Parameter('time%s' % i, 's', label='Time%s' %i))
-        problem_parameters.append(Parameter('velocity%s' % i, 's', label='Velocity%s' %i))
 
-
-        problem_waveform_parameters.append(Parameter('nucleation_x%s' % i, 'offset', label='Nucleation X'))
-        problem_waveform_parameters.append(Parameter('nucleation_y%s' % i, 'offset', label='Nucleation Y'))
-        problem_waveform_parameters.append(Parameter('time%s' % i, 's', label='Time'))
 
     dependants = []
     distance_min = Float.T(default=0.0)
@@ -87,7 +79,7 @@ class MultiRectangularProblem(Problem):
 
     def get_source(self, x, i):
         #print("n:",self.nsources)
-        d = self.get_parameter_dict(x[0+13*i:13+i*13], nsources=self.nsources)
+        d = self.get_parameter_dict(x[0+9*i:9+i*9], nsources=self.nsources)
 
         p = {}
         for k in self.base_source.keys():
