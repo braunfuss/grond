@@ -51,23 +51,25 @@ day= 24.*3600.
 class MultiRectangularProblem(Problem):
 
     #nsources = Problem.nsources #here i need help
-    nsources = 2
+    nsources = 3
     problem_parameters = []
     problem_waveform_parameters = []
 
     for i in range(nsources):
-        problem_parameters.append(Parameter('north_shift%s' % i, 'm', label='Northing', **as_km))
-        problem_parameters.append(Parameter('east_shift%s' % i, 'm', label='Easting', **as_km))
-        problem_parameters.append(Parameter('depth%s' % i, 'm', label='Depth', **as_km))
-        problem_parameters.append(Parameter('length%s' % i, 'm', label='Length', **as_km))
-        problem_parameters.append(Parameter('width%s' % i, 'm', label='Width', **as_km))
-        problem_parameters.append(Parameter('dip%s' % i, 'deg', label='Dip'))
-        problem_parameters.append(Parameter('strike%s' % i, 'deg', label='Strike'))
-        problem_parameters.append(Parameter('rake%s' % i, 'deg', label='Rake'))
-        problem_parameters.append(Parameter('slip%s' % i, 'm', label='Slip'))
-        problem_parameters.append(Parameter('nucleation_x%s' % i, 'offset', label='Nucleation X'))
-        problem_parameters.append(Parameter('nucleation_y%s' % i, 'offset', label='Nucleation Y'))
-        problem_parameters.append(Parameter('time%s' % i, 's', label='Time'))
+        problem_parameters.append(Parameter('north_shift%s' % i, 'm', label='Northing%s'%i, **as_km))
+        problem_parameters.append(Parameter('east_shift%s' % i, 'm', label='Easting%s' %i, **as_km))
+        problem_parameters.append(Parameter('depth%s' % i, 'm', label='Depth%s'%i, **as_km))
+        problem_parameters.append(Parameter('length%s' % i, 'm', label='Length%s'%i, **as_km))
+        problem_parameters.append(Parameter('width%s' % i, 'm', label='Width%s'%i, **as_km))
+        problem_parameters.append(Parameter('dip%s' % i, 'deg', label='Dip%s'%i))
+        problem_parameters.append(Parameter('strike%s' % i, 'deg', label='Strike%s'%i))
+        problem_parameters.append(Parameter('rake%s' % i, 'deg', label='Rake%s'%i))
+        problem_parameters.append(Parameter('slip%s' % i, 'm', label='Slip%s'%i))
+        problem_parameters.append(Parameter('nucleation_x%s' % i, 'offset', label='Nucleation X%s'%i))
+        problem_parameters.append(Parameter('nucleation_y%s' % i, 'offset', label='Nucleation Y%s'%i))
+        problem_parameters.append(Parameter('time%s' % i, 's', label='Time%s' %i))
+        problem_parameters.append(Parameter('velocity%s' % i, 's', label='Velocity%s' %i))
+
 
         problem_waveform_parameters.append(Parameter('nucleation_x%s' % i, 'offset', label='Nucleation X'))
         problem_waveform_parameters.append(Parameter('nucleation_y%s' % i, 'offset', label='Nucleation Y'))
@@ -85,7 +87,7 @@ class MultiRectangularProblem(Problem):
 
     def get_source(self, x, i):
         #print("n:",self.nsources)
-        d = self.get_parameter_dict(x[0+12*i:12+i*12], nsources=self.nsources)
+        d = self.get_parameter_dict(x[0+13*i:13+i*13], nsources=self.nsources)
 
         p = {}
         for k in self.base_source.keys():
@@ -96,7 +98,7 @@ class MultiRectangularProblem(Problem):
 
         return source
 
-    def random_uniform(self, xbounds, rstate):
+    def random_uniform(self, xbounds, rstate, fixed_magnitude=False):
         x = num.zeros(self.nparameters)
         for i in range(self.nparameters):
             x[i] = num.random.uniform(xbounds[i, 0], xbounds[i, 1])
