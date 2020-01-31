@@ -51,7 +51,7 @@ day= 24.*3600.
 class MultiRectangularProblem(Problem):
 
     #nsources = Problem.nsources #here i need help
-    nsources = 2
+    nsources = 3
     problem_parameters = []
     problem_waveform_parameters = []
 
@@ -65,9 +65,6 @@ class MultiRectangularProblem(Problem):
         problem_parameters.append(Parameter('strike%s' % i, 'deg', label='Strike'))
         problem_parameters.append(Parameter('rake%s' % i, 'deg', label='Rake'))
         problem_parameters.append(Parameter('slip%s' % i, 'm', label='Slip'))
-        problem_parameters.append(Parameter('nucleation_x%s' % i, 'offset', label='Nucleation X'))
-        problem_parameters.append(Parameter('nucleation_y%s' % i, 'offset', label='Nucleation Y'))
-        problem_parameters.append(Parameter('time%s' % i, 's', label='Time'))
 
         problem_waveform_parameters.append(Parameter('nucleation_x%s' % i, 'offset', label='Nucleation X'))
         problem_waveform_parameters.append(Parameter('nucleation_y%s' % i, 'offset', label='Nucleation Y'))
@@ -85,7 +82,7 @@ class MultiRectangularProblem(Problem):
 
     def get_source(self, x, i):
         #print("n:",self.nsources)
-        d = self.get_parameter_dict(x[0+12*i:12+i*12], nsources=self.nsources)
+        d = self.get_parameter_dict(x[0+9*i:9+i*9], nsources=self.nsources)
 
         p = {}
         for k in self.base_source.keys():
@@ -96,7 +93,7 @@ class MultiRectangularProblem(Problem):
 
         return source
 
-    def random_uniform(self, xbounds, rstate):
+    def random_uniform(self, xbounds, rstate, fixed_magnitude):
         x = num.zeros(self.nparameters)
         for i in range(self.nparameters):
             x[i] = num.random.uniform(xbounds[i, 0], xbounds[i, 1])

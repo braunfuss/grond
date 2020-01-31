@@ -154,7 +154,7 @@ class UniformSamplerPhase(SamplerPhase):
 
     def get_raw_sample(self, problem, iiter, chains):
         xbounds = problem.get_parameter_bounds()
-        return Sample(model=problem.random_uniform(xbounds, self.get_rstate()))
+        return Sample(model=problem.random_uniform(xbounds, self.get_rstate(), 0.))
 
 
 class DirectedSamplerPhase(SamplerPhase):

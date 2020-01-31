@@ -582,11 +582,10 @@ class Problem(Object):
 
         return self._family_mask
 
-<<<<<<< HEAD
-    def evaluate(self, x, mask=None, result_mode='full', targets=None, nsources=None):
+    def evaluate(self, x, mask=None, result_mode='full', targets=None, nsources=None, nthreads=1):
         patches = []
         outlines = []
-        self.nsources = 2
+        self.nsources = 3
         if self.nsources:
             for i in range(self.nsources):
                 source = self.get_source(x, i)
@@ -594,12 +593,6 @@ class Problem(Object):
                 outlines.append(source.outline())
         else:
                 source = self.get_source(x)
-=======
-    def evaluate(self, x, mask=None, result_mode='full', targets=None,
-                 nthreads=1):
-        source = self.get_source(x)
-        engine = self.get_engine()
->>>>>>> 5e196b4ca85840da0d0047688854c6da074044a9
 
         engine = self.get_engine()
         sources = CombiSource(subsources=patches)
@@ -628,13 +621,8 @@ class Problem(Object):
 
         modelling_targets_unique = list(u2m_map.keys())
 
-<<<<<<< HEAD
         resp = engine.process(sources, modelling_targets_unique,
-                              nthreads=self.nthreads)
-=======
-        resp = engine.process(source, modelling_targets_unique,
                               nthreads=nthreads)
->>>>>>> 5e196b4ca85840da0d0047688854c6da074044a9
         modelling_results_unique = list(resp.results_list[0])
 
         modelling_results = [None] * len(modelling_targets)

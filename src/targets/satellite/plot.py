@@ -87,7 +87,6 @@ edge marking the upper fault edge. Complete data extent is shown.
         for target in sat_targets:
             target.set_dataset(ds)
 
-<<<<<<< HEAD
 
         best_model = history.get_best_model()
 
@@ -95,7 +94,7 @@ edge marking the upper fault edge. Complete data extent is shown.
         isort = num.argsort(gms)
         gms = gms[isort]
         #nsources = problem.nsources #help
-        nsources = 2
+        nsources = 3
         if nsources is not None:
             sources = []
             for i in range(nsources):
@@ -106,16 +105,6 @@ edge marking the upper fault edge. Complete data extent is shown.
             source = problem.get_source(0)
 
         results = problem.evaluate(best_model, targets=sat_targets)
-=======
-        if self.fit == 'best':
-            source = history.get_best_source()
-            model = history.get_best_model()
-        elif self.fit == 'mean':
-            source = history.get_mean_source()
-            model = history.get_mean_model()
-
-        results = problem.evaluate(model, targets=sat_targets)
->>>>>>> 5e196b4ca85840da0d0047688854c6da074044a9
 
         def initAxes(ax, scene, title, last_axes=False):
             ax.set_title(title)
@@ -146,13 +135,8 @@ edge marking the upper fault edge. Complete data extent is shown.
                 scale_x = dict(scale=1., suffix='°')
                 scale_y = dict(scale=1., suffix='°')
                 if not self.relative_coordinates:
-<<<<<<< HEAD
                     scale_y['offset'] = source.effective_lat
                     scale_x['offset'] = source.effective_lon
-=======
-                    scale_x['offset'] = source.effective_lon
-                    scale_y['offset'] = source.effective_lat
->>>>>>> 5e196b4ca85840da0d0047688854c6da074044a9
                 ax.set_aspect(1./num.cos(source.effective_lat*d2r))
 
             nticks_lon = 4 if abs(scene.frame.llLon) >= 100 else 5

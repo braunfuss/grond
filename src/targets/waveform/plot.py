@@ -231,7 +231,7 @@ class CheckWaveformsPlot(PlotConfig):
         else:
             for _ in range(self.n_random_synthetics):
                 x = problem.get_random_model()
-                nsources = 2
+                nsources = 3
                 for i in range(0, nsources):
                     sources.append(problem.get_source(x, i))
                 results = problem.evaluate(x)
@@ -884,7 +884,7 @@ box, red).
 
         w_max = num.nanmax(ws)
         gcm_max = num.nanmax(gcms)
-        nsources = 2
+        nsources = 3
         for i in range(0, nsources):
             source = problem.get_source(xbest, i)
 
