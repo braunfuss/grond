@@ -512,8 +512,8 @@ class Problem(Object):
 
         mf = misfits[:, num.newaxis, :, :].copy()
 
-        #if num.any(extra_residuals):
-            #mf = mf + extra_residuals[num.newaxis, :, :, num.newaxis]
+        if num.any(extra_residuals):
+            mf = mf + extra_residuals[num.newaxis, :, :, num.newaxis]
 
         res = mf[..., 0]
         norms = mf[..., 1]
