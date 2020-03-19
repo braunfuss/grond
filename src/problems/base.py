@@ -1149,20 +1149,23 @@ def load_problem_data(dirname, problem, nmodels_skip=0, nchains=None):
         fn = op.join(dirname, 'models')
         with open(fn, 'r') as f:
             f.seek(nmodels_skip * problem.nparameters * 8)
-            models = num.fromfile(
-                    f, dtype='<f8',
-                    count=nmodels * problem.nparameters)\
-                .astype(num.float)
+            models = num.memmap(f, dtype='<f8', shape=nmodels * problem.nparameters).astype(num.float, copy=False)
+        #    models = num.fromfile(
+        #            f, dtype='<f8',
+        #            count=nmodels * problem.nparameters)\
+        #        .astype(num.float)
 
         models = models.reshape((nmodels, problem.nparameters))
 
         fn = op.join(dirname, 'misfits')
         with open(fn, 'r') as f:
             f.seek(nmodels_skip * problem.nmisfits * 2 * 8)
-            misfits = num.fromfile(
-                    f, dtype='<f8',
-                    count=nmodels*problem.nmisfits*2)\
-                .astype(num.float)
+        #    misfits = num.fromfile(
+        #            f, dtype='<f8',
+        #            count=nmodels*problem.nmisfits*2)\
+        #        .astype(num.float)
+            misfits = num.memmap(f, dtype='<f8', shape=nmodels * problem.nmisfits*2).astype(num.float, copy=False)
+
         misfits = misfits.reshape((nmodels, problem.nmisfits, 2))
 
         chains = None
