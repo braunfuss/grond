@@ -1147,49 +1147,44 @@ def load_problem_data(dirname, problem, nmodels_skip=0, nchains=None):
         nmodels = get_nmodels(dirname, problem) - nmodels_skip
 
         fn = op.join(dirname, 'models')
-        with open(fn, 'r') as f:
-            f.seek(nmodels_skip * problem.nparameters * 8)
-            models = num.memmap(f, dtype='<f8', shape=nmodels * problem.nparameters).astype(num.float, copy=False)
-        #    models = num.fromfile(
-        #            f, dtype='<f8',
-        #            count=nmodels * problem.nparameters)\
-        #        .astype(num.float)
-
-        models = models.reshape((nmodels, problem.nparameters))
+        offset = nmodels_skip * problem.nparameters * 8
+        models = num.memmap(
+            fn, dtype='<f8',
+            offset=offset,
+            shape=(nmodels, problem.nparameters))\
+            .astype(num.float, copy=False)
 
         fn = op.join(dirname, 'misfits')
-        with open(fn, 'r') as f:
-            f.seek(nmodels_skip * problem.nmisfits * 2 * 8)
-        #    misfits = num.fromfile(
-        #            f, dtype='<f8',
-        #            count=nmodels*problem.nmisfits*2)\
-        #        .astype(num.float)
-            misfits = num.memmap(f, dtype='<f8', shape=nmodels * problem.nmisfits*2).astype(num.float, copy=False)
-
-        misfits = misfits.reshape((nmodels, problem.nmisfits, 2))
+        offset = nmodels_skip * problem.nmisfits * 2 * 8
+        misfits = num.memmap(
+            fn, dtype='<f8',
+            offset=offset,
+            shape=(nmodels, problem.nmisfits, 2))\
+            .astype(num.float, copy=False)
 
         chains = None
         fn = get_chains_fn()
         if fn and nchains is not None:
-            with open(fn, 'r') as f:
-                f.seek(nmodels_skip * nchains * 8)
-                chains = num.fromfile(
-                        f, dtype='<f8',
-                        count=nmodels*nchains)\
-                    .astype(num.float)
-
-            chains = chains.reshape((nmodels, nchains))
+            offset = nmodels_skip * nchains * 8
+            chains = num.memmap(
+                fn, dtype='<f8',
+                offset=offset,
+                shape=(nmodels, nchains))\
+                .astype(num.float, copy=False)
 
         sampler_contexts = None
         fn = op.join(dirname, 'choices')
         if op.exists(fn):
-            with open(fn, 'r') as f:
-                f.seek(nmodels_skip * 4 * 8)
-                sampler_contexts = num.fromfile(
-                        f, dtype='<i8',
-                        count=nmodels*4).astype(num.int)
+            offset = nmodels_skip * 4 * 8
+            sampler_contexts = num.memmap(
+                fn, dtype='<i8',
+                offset=offset,
+                shape=(nmodels, 4))\
+                .astype(num.int, copy=False)
 
-            sampler_contexts = sampler_contexts.reshape((nmodels, 4))
+        fn = op.join(dirname, 'rstate')
+        if op.exists(fn):
+            problem.get_rstate_manager().load_state(fn)
 
     except OSError as e:
         logger.debug(str(e))
@@ -1197,7 +1192,6 @@ def load_problem_data(dirname, problem, nmodels_skip=0, nchains=None):
             'No problem data available (%s).' % dirname)
 
     return models, misfits, chains, sampler_contexts
-
 
 __all__ = '''
     ProblemConfig
