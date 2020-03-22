@@ -48,9 +48,10 @@ def overlap(r1, r2):
     return range_overlap(r1.left, r1.right, r2.left, r2.right) and range_overlap(r1.bottom, r1.top, r2.bottom, r2.top)
 
 
-def nextpow2(i):
-    return 2**int(math.ceil(math.log(i)/math.log(2.)))
-
+#def nextpow2(i):
+#    return 2**int(math.ceil(math.log(i)/math.log(2.)))
+def nextcapacity(i):
+    return int(math.ceil(i / 1024) * 1024)
 
 def correlated_weights(values, weight_matrix):
     '''
@@ -868,7 +869,7 @@ class ModelHistory(object):
         n = models.shape[0]
 
         nmodels_capacity_want = max(
-            self.nmodels_capacity_min, nextpow2(nmodels + n))
+            self.nmodels_capacity_min, nextcapacity(nmodels + n))
 
         if nmodels_capacity_want != self.nmodels_capacity:
             self.nmodels_capacity = nmodels_capacity_want
