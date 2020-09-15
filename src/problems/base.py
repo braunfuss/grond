@@ -170,8 +170,7 @@ class Problem(Object):
         o._target_weights = None
         return o
 
-    def set_target_parameter_values(self, x):
-        nprob = len(self.problem_parameters)
+    def set_target_parameter_values(self, x, nprob):
         for target in self.targets:
             target.set_parameter_values(x[nprob:nprob+target.nparameters])
             nprob += target.nparameters
@@ -183,7 +182,7 @@ class Problem(Object):
                 if group in p.groups:
                     try:
                         params.append((p.name[:-1], model[ip]))
-                    except:
+                    except Exception:
                         pass
         else:
             for ip, p in enumerate(self.parameters):
@@ -204,26 +203,26 @@ class Problem(Object):
         guts.dump(self, filename=fn)
 
     def dump_problem_data(
-            self, dirname, x, misfits, bootstraps=None,
+            self, trans_chain, dirname, x, misfits, bootstraps=None,
             sampler_context=None):
 
-        fn = op.join(dirname, 'models')
+        fn = op.join(dirname, 'models_'+trans_chain)
         if not isinstance(x, num.ndarray):
             x = num.array(x)
         with open(fn, 'ab') as f:
             x.astype('<f8').tofile(f)
 
-        fn = op.join(dirname, 'misfits')
+        fn = op.join(dirname, 'misfits_'+trans_chain)
         with open(fn, 'ab') as f:
             misfits.astype('<f8').tofile(f)
 
         if bootstraps is not None:
-            fn = op.join(dirname, 'bootstraps')
+            fn = op.join(dirname, 'bootstraps_'+trans_chain)
             with open(fn, 'ab') as f:
                 bootstraps.astype('<f8').tofile(f)
 
         if sampler_context is not None:
-            fn = op.join(dirname, 'choices')
+            fn = op.join(dirname, 'choices_'+trans_chain)
             with open(fn, 'ab') as f:
                 num.array(sampler_context, dtype='<i8').tofile(f)
 
@@ -324,15 +323,14 @@ class Problem(Object):
     def preconstrain(self, x):
         return x
 
-    def extract(self, xs, i):
+    def extract(self, xs, i, nparameters):
         if xs.ndim == 1:
-            return self.extract(xs[num.newaxis, :], i)[0]
-
-        if i < self.nparameters:
+            return self.extract(xs[num.newaxis, :], i, nparameters)[0]
+        if i < nparameters:
             return xs[:, i]
         else:
             return self.make_dependant(
-                xs, self.dependants[i-self.nparameters].name)
+                xs, self.dependants[i-nparameters].name)
 
     def get_target_weights(self):
         if self._target_weights is None:
@@ -392,7 +390,6 @@ class Problem(Object):
             for p in target.target_parameters:
                 r = target.target_ranges[p.name_nogroups]
                 out.append((r.start, r.stop))
-
         return num.array(out, dtype=num.float)
 
     def get_dependant_bounds(self):
@@ -539,13 +536,13 @@ class Problem(Object):
             source = self.get_source(x, i, nseg)
             patches.append(source)
             outlines.append(source.outline())
-
+        nprob = nsources*13
         engine = self.get_engine()
         if nsources > 1:
             sources = CombiSource(subsources=patches)
         else:
             sources = source
-        self.set_target_parameter_values(x)
+        self.set_target_parameter_values(x, nprob)
 
         if mask is not None and targets is not None:
             raise ValueError('Mask cannot be defined with targets set.')
@@ -571,7 +568,6 @@ class Problem(Object):
             u2m_map[mtarget].append(imtarget)
 
         modelling_targets_unique = list(u2m_map.keys())
-
         resp = engine.process(sources, modelling_targets_unique,
                               nthreads=self.nthreads)
 
@@ -765,7 +761,7 @@ class ModelHistory(object):
         if self.nmodels_capacity != nmodels_capacity_new:
 
             models_buffer = num.zeros(
-                (nmodels_capacity_new, 13),
+                (nmodels_capacity_new, 13+6),
                 dtype=num.float)
             misfits_buffer = num.zeros(
                 (nmodels_capacity_new, self.problem.nmisfits, 2),
@@ -832,10 +828,9 @@ class ModelHistory(object):
             self._sample_contexts_buffer[nmodels:nmodels+n, :] \
                 = sampler_contexts
             self.sampler_contexts = self._sample_contexts_buffer[:nmodels+n, :]
-
         if self.path and self.mode == 'w':
             for i in range(n):
-                self.problem.dump_problem_data(
+                self.problem.dump_problem_data("transD0",
                     self.path, models[i, :], misfits[i, :, :],
                     bootstrap_misfits[i, :]
                     if bootstrap_misfits is not None else None,
@@ -1094,7 +1089,7 @@ class ModelHistory1(object):
         if self.nmodels_capacity != nmodels_capacity_new:
 
             models_buffer = num.zeros(
-                (nmodels_capacity_new, 26),
+                (nmodels_capacity_new, 26+6),
                 dtype=num.float)
             misfits_buffer = num.zeros(
                 (nmodels_capacity_new, self.problem.nmisfits, 2),
@@ -1164,7 +1159,7 @@ class ModelHistory1(object):
 
         if self.path and self.mode == 'w':
             for i in range(n):
-                self.problem.dump_problem_data(
+                self.problem.dump_problem_data("transD1",
                     self.path, models[i, :], misfits[i, :, :],
                     bootstrap_misfits[i, :]
                     if bootstrap_misfits is not None else None,
@@ -1422,7 +1417,7 @@ class ModelHistory2(object):
         if self.nmodels_capacity != nmodels_capacity_new:
 
             models_buffer = num.zeros(
-                (nmodels_capacity_new, 39),
+                (nmodels_capacity_new, 39+6),
                 dtype=num.float)
             misfits_buffer = num.zeros(
                 (nmodels_capacity_new, self.problem.nmisfits, 2),
@@ -1492,7 +1487,7 @@ class ModelHistory2(object):
 
         if self.path and self.mode == 'w':
             for i in range(n):
-                self.problem.dump_problem_data(
+                self.problem.dump_problem_data("transD2",
                     self.path, models[i, :], misfits[i, :, :],
                     bootstrap_misfits[i, :]
                     if bootstrap_misfits is not None else None,
@@ -1650,22 +1645,22 @@ class ModelHistory2(object):
             in self.models_by_cluster(cluster_attribute)]
 
 
-def get_nmodels(dirname, problem):
-    fn = op.join(dirname, 'models')
+def get_nmodels(dirname, problem, nseg):
+    fn = op.join(dirname, 'models_transD%s' %nseg)
     with open(fn, 'r') as f:
         nmodels1 = os.fstat(f.fileno()).st_size // (problem.nparameters * 8)
 
-    fn = op.join(dirname, 'misfits')
+    fn = op.join(dirname, 'misfits_transD%s' %nseg)
     with open(fn, 'r') as f:
         nmodels2 = os.fstat(f.fileno()).st_size // (problem.nmisfits * 2 * 8)
 
     return min(nmodels1, nmodels2)
 
 
-def load_problem_info_and_data(dirname, subset=None, nchains=None):
-    problem = load_problem_info(dirname)
+def load_problem_info_and_data(dirname, nseg, subset=None, nchains=None):
+    problem = load_problem_info(dirname, nseg)
     models, misfits, bootstraps, sampler_contexts = load_problem_data(
-        xjoin(dirname, subset), problem, nchains=nchains)
+        xjoin(dirname, subset), problem, nchains=nchains, nseg=nseg)
     return problem, models, misfits, bootstraps, sampler_contexts
 
 
@@ -1674,7 +1669,7 @@ def load_optimiser_info(dirname):
     return guts.load(filename=fn)
 
 
-def load_problem_info(dirname):
+def load_problem_info(dirname, nseg):
     try:
         fn = op.join(dirname, 'problem.yaml')
         return guts.load(filename=fn)
@@ -1684,22 +1679,23 @@ def load_problem_info(dirname):
             'No problem info available (%s).' % dirname)
 
 
-def load_problem_data(dirname, problem, nmodels_skip=0, nchains=None):
+def load_problem_data(dirname, problem, nmodels_skip=0, nchains=None, nseg=None):
 
     try:
-        nmodels = get_nmodels(dirname, problem) - nmodels_skip
-
-        fn = op.join(dirname, 'models')
+        nmodels = get_nmodels(dirname, problem, nseg) - nmodels_skip
+    #    print('models_transD%s' %nseg)
+        nparameters = (nseg+1)*13
+        fn = op.join(dirname, 'models_transD%s' %nseg)
         with open(fn, 'r') as f:
-            f.seek(nmodels_skip * problem.nparameters * 8)
+            f.seek(nmodels_skip * nparameters * 8)
             models = num.fromfile(
                     f, dtype='<f8',
-                    count=nmodels * problem.nparameters)\
+                    count=nmodels * nparameters)\
                 .astype(num.float)
 
-        models = models.reshape((nmodels, problem.nparameters))
+        models = models.reshape((nmodels, nparameters))
 
-        fn = op.join(dirname, 'misfits')
+        fn = op.join(dirname, 'misfits_transD%s' %nseg)
         with open(fn, 'r') as f:
             f.seek(nmodels_skip * problem.nmisfits * 2 * 8)
             misfits = num.fromfile(
@@ -1709,7 +1705,7 @@ def load_problem_data(dirname, problem, nmodels_skip=0, nchains=None):
         misfits = misfits.reshape((nmodels, problem.nmisfits, 2))
 
         bootstraps = None
-        fn = op.join(dirname, 'bootstraps')
+        fn = op.join(dirname, 'bootstraps_transD%s' %nseg)
         if op.exists(fn) and nchains is not None:
             with open(fn, 'r') as f:
                 f.seek(nmodels_skip * nchains * 8)
@@ -1721,7 +1717,7 @@ def load_problem_data(dirname, problem, nmodels_skip=0, nchains=None):
             bootstraps = bootstraps.reshape((nmodels, nchains))
 
         sampler_contexts = None
-        fn = op.join(dirname, 'choices')
+        fn = op.join(dirname, 'choices_transD%s' %nseg)
         if op.exists(fn):
             with open(fn, 'r') as f:
                 f.seek(nmodels_skip * 4 * 8)

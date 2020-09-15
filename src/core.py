@@ -139,64 +139,64 @@ def forward(rundir_or_config_path, event_names):
     trace.snuffle(all_trs, markers=markers, stations=ds.get_stations())
 
 
-def harvest(rundir, problem=None, nbest=10, force=False, weed=0):
+def harvest(rundir, problem=None, nbest=10, force=False, weed=0, nsegmentations=3):
 
     env = Environment([rundir])
     nchains = env.get_optimiser().nchains
-
-    if problem is None:
-        problem, xs, misfits, bootstrap_misfits, _ = \
-            load_problem_info_and_data(rundir, nchains=nchains)
-    else:
-        xs, misfits, bootstrap_misfits, _ = \
-            load_problem_data(rundir, problem, nchains=nchains)
-
-    logger.info('Harvesting problem "%s"...' % problem.name)
-
-    optimiser = load_optimiser_info(rundir)
-    dumpdir = op.join(rundir, 'harvest')
-    if op.exists(dumpdir):
-        if force:
-            shutil.rmtree(dumpdir)
+    for nseg in range(nsegmentations):
+        if problem is None:
+            problem, xs, misfits, bootstrap_misfits, _ = \
+                load_problem_info_and_data(rundir, nseg, nchains=nchains)
         else:
-            raise DirectoryAlreadyExists(dumpdir)
+            xs, misfits, bootstrap_misfits, _ = \
+                load_problem_data(rundir, problem, nseg=nseg, nchains=nchains)
 
-    util.ensuredir(dumpdir)
+        logger.info('Harvesting problem "%s, Dimension %s"...' % (problem.name, nseg))
 
-    ibests_list = []
-    ibests = []
-    gms = problem.combine_misfits(misfits)
-    isort = num.argsort(gms)
+        optimiser = load_optimiser_info(rundir)
+        dumpdir = op.join(rundir, 'harvest')
+    #    if op.exists(dumpdir):
+    #        if force:
+    #            shutil.rmtree(dumpdir)
+    #        else:
+    #            raise DirectoryAlreadyExists(dumpdir)
 
-    ibests_list.append(isort[:nbest])
+        util.ensuredir(dumpdir)
 
-    if weed != 3:
-        for ibootstrap in range(optimiser.nbootstrap):
-            bms = bootstrap_misfits[:, ibootstrap]
-            isort = num.argsort(bms)
-            ibests_list.append(isort[:nbest])
-            ibests.append(isort[0])
+        ibests_list = []
+        ibests = []
+        gms = problem.combine_misfits(misfits)
+        isort = num.argsort(gms)
 
-        if weed:
-            mean_gm_best = num.median(gms[ibests])
-            std_gm_best = num.std(gms[ibests])
-            ibad = set()
+        ibests_list.append(isort[:nbest])
 
-            for ibootstrap, ibest in enumerate(ibests):
-                if gms[ibest] > mean_gm_best + std_gm_best:
-                    ibad.add(ibootstrap)
+        if weed != 3:
+            for ibootstrap in range(optimiser.nbootstrap):
+                bms = bootstrap_misfits[:, ibootstrap]
+                isort = num.argsort(bms)
+                ibests_list.append(isort[:nbest])
+                ibests.append(isort[0])
 
-            ibests_list = [
-                ibests_ for (ibootstrap, ibests_) in enumerate(ibests_list)
-                if ibootstrap not in ibad]
+            if weed:
+                mean_gm_best = num.median(gms[ibests])
+                std_gm_best = num.std(gms[ibests])
+                ibad = set()
 
-    ibests = num.concatenate(ibests_list)
+                for ibootstrap, ibest in enumerate(ibests):
+                    if gms[ibest] > mean_gm_best + std_gm_best:
+                        ibad.add(ibootstrap)
 
-    if weed == 2:
-        ibests = ibests[gms[ibests] < mean_gm_best]
+                ibests_list = [
+                    ibests_ for (ibootstrap, ibests_) in enumerate(ibests_list)
+                    if ibootstrap not in ibad]
 
-    for i in ibests:
-        problem.dump_problem_data(dumpdir, xs[i], misfits[i, :, :])
+        ibests = num.concatenate(ibests_list)
+
+        if weed == 2:
+            ibests = ibests[gms[ibests] < mean_gm_best]
+
+        for i in ibests:
+            problem.dump_problem_data("transD%s" % nseg, dumpdir, xs[i], misfits[i, :, :])
 
     logger.info('Done harvesting problem "%s".' % problem.name)
 
@@ -607,7 +607,7 @@ def format_stats(rs, fmt):
     return ' '.join('%16.7g' % v for v in values)
 
 
-def export(what, rundirs, type=None, pnames=None, filename=None):
+def export(what, rundirs, type=None, pnames=None, filename=None, nsegmentations=3):
     if pnames is not None:
         pnames_clean = [pname.split('.')[0] for pname in pnames]
         shortform = all(len(pname.split('.')) == 2 for pname in pnames)
@@ -639,13 +639,14 @@ def export(what, rundirs, type=None, pnames=None, filename=None):
     if shortform:
         print('#', ' '.join(['%16s' % x for x in pnames]), file=out)
 
-    def dump(x, gm, indices):
-        nsources = 2 # fix for testing
+    def dump(x, gm, indices, nseg):
+        nsources = nseg+1 # fix for testing
         sources = []
         events = []
+        nparameters = (nseg+1)*13
         if type == 'vector':
             print(' ', ' '.join(
-                '%16.7g' % problem.extract(x, i) for i in indices),
+                '%16.7g' % problem.extract(x, i, nparameters) for i in indices),
                 '%16.7g' % gm, file=out)
 
         elif type == 'source':
@@ -666,56 +667,57 @@ def export(what, rundirs, type=None, pnames=None, filename=None):
             raise GrondError('Invalid argument: type=%s' % repr(type))
 
     header = None
-    for rundir in rundirs:
-        problem, xs, misfits, bootstrap_misfits, _ = \
-            load_problem_info_and_data(
-                rundir, subset='harvest')
+    for nseg in range(nsegmentations):
+        nparameters = (nseg+1)*13
+        for rundir in rundirs:
+            problem, xs, misfits, bootstrap_misfits, _ = \
+                load_problem_info_and_data(
+                    rundir, nseg=nseg, subset='harvest')
+            if type == 'vector':
+                pnames_take = pnames_clean or \
+                    problem.parameter_names[:nparameters]
 
-        if type == 'vector':
-            pnames_take = pnames_clean or \
-                problem.parameter_names[:problem.nparameters]
+                indices = num.array(
+                    [problem.name_to_index(pname) for pname in pnames_take])
 
-            indices = num.array(
-                [problem.name_to_index(pname) for pname in pnames_take])
+                if type == 'vector' and what in ('best', 'mean', 'ensemble'):
+                    extra = ['global_misfit']
+                else:
+                    extra = []
 
-            if type == 'vector' and what in ('best', 'mean', 'ensemble'):
-                extra = ['global_misfit']
+                new_header = '# ' + ' '.join(
+                    '%16s' % x for x in pnames_take + extra)
+
+                if type == 'vector' and header != new_header:
+                    print(new_header, file=out)
+
+                header = new_header
             else:
-                extra = []
+                indices = None
 
-            new_header = '# ' + ' '.join(
-                '%16s' % x for x in pnames_take + extra)
+            if what == 'best':
+                x_best, gm_best = stats.get_best_x_and_gm(problem, xs, misfits)
+                dump(x_best, gm_best, indices, nseg)
 
-            if type == 'vector' and header != new_header:
-                print(new_header, file=out)
+            elif what == 'mean':
+                x_mean, gm_mean = stats.get_mean_x_and_gm(problem, xs, misfits)
+                dump(x_mean, gm_mean, indices, nseg)
 
-            header = new_header
-        else:
-            indices = None
+            elif what == 'ensemble':
+                gms = problem.combine_misfits(misfits)
+                isort = num.argsort(gms)
+                for i in isort:
+                    dump(xs[i], gms[i], indices, nseg)
 
-        if what == 'best':
-            x_best, gm_best = stats.get_best_x_and_gm(problem, xs, misfits)
-            dump(x_best, gm_best, indices)
+            elif what == 'stats':
+                rs = make_stats(problem, xs, misfits, pnames_clean)
+                if shortform:
+                    print(' ', format_stats(rs, pnames), file=out)
+                else:
+                    print(rs, file=out)
 
-        elif what == 'mean':
-            x_mean, gm_mean = stats.get_mean_x_and_gm(problem, xs, misfits)
-            dump(x_mean, gm_mean, indices)
-
-        elif what == 'ensemble':
-            gms = problem.combine_misfits(misfits)
-            isort = num.argsort(gms)
-            for i in isort:
-                dump(xs[i], gms[i], indices)
-
-        elif what == 'stats':
-            rs = make_stats(problem, xs, misfits, pnames_clean)
-            if shortform:
-                print(' ', format_stats(rs, pnames), file=out)
             else:
-                print(rs, file=out)
-
-        else:
-            raise GrondError('Invalid argument: what=%s' % repr(what))
+                raise GrondError('Invalid argument: what=%s' % repr(what))
 
     if out is not sys.stdout:
         out.close()

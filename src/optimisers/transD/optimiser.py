@@ -20,6 +20,8 @@ from shapely.geometry import Point, LineString
 from shapely.geometry.polygon import Polygon
 from scipy import stats, signal
 from scipy.interpolate import RegularGridInterpolator
+from scipy.stats import multivariate_normal, binned_statistic
+from operator import itemgetter
 
 guts_prefix = 'grond'
 
@@ -163,13 +165,10 @@ class InjectionSamplerPhase(SamplerPhase):
 class UniformSamplerPhase(SamplerPhase):
     def get_raw_sample(self, problem, iiter, chainss, misfits, nsegmentation):
         xbounds = problem.get_parameter_bounds()
-        if nsegmentation == 0:
-            xbounds = xbounds[0:13, :]
-        if nsegmentation == 1:
-            xbounds = xbounds[0:26, :]
-        if nsegmentation == 2:
-            xbounds = xbounds[0:39, :]
-        return Sample(model=problem.random_uniform(xbounds, self.get_rstate(), 13*(nsegmentation+1)), nsources=nsegmentation+1), chainss
+        nparas = len(xbounds)
+        max_sources = 3
+        model = problem.random_uniform(xbounds, self.get_rstate(), nsegmentation)
+        return Sample(model=model, nsources=nsegmentation+1), chainss
 
 
 class GuidedSamplerPhase(SamplerPhase):
@@ -234,14 +233,14 @@ class GuidedSamplerPhase(SamplerPhase):
     nsegmentation = None
 
     try:
-        bp_input_grid_lf = num.loadtxt('../semb_lf.ASC', unpack=True)
+        bp_input_grid_lf = num.loadtxt('semb_lf.ASC', unpack=True)
     except:
         pass
     try:
-        bp_input_grid_timecum_lf = num.loadtxt('../semb_timecum.ASC', unpack=True)
-        bp_input_grid_timemin_lf = num.loadtxt('../semb_timemin.ASC', unpack=True)
-        bp_input_sembmaxtime_lf = num.loadtxt('../sembmax_0.txt', unpack=True)
-        bp_input_sembmaxtime_hf = num.loadtxt('../sembmax_1.txt', unpack=True)
+        bp_input_grid_timecum_lf = num.loadtxt('semb_timecum.ASC', unpack=True)
+        bp_input_grid_timemin_lf = num.loadtxt('semb_timemin.ASC', unpack=True)
+        bp_input_sembmaxtime_lf = num.loadtxt('sembmax_0.txt', unpack=True)
+        bp_input_sembmaxtime_hf = num.loadtxt('sembmax_1.txt', unpack=True)
     except:
         bp_input_grid_timemin_lf = None
         bp_input_grid_timecum_lf = None
@@ -249,10 +248,10 @@ class GuidedSamplerPhase(SamplerPhase):
         bp_input_sembmaxtime_lf = None
         pass
     try:
-        bp_input_grid_hf = num.loadtxt('../semb_hf.ASC', unpack=True)
+        bp_input_grid_hf = num.loadtxt('semb_hf.ASC', unpack=True)
     except:
         pass
-    grad_input_grid = num.loadtxt('../grad_grid_resam.ASC', unpack=True)
+    grad_input_grid = num.loadtxt('grad_grid_resam.ASC', unpack=True)
 
 
     if grad_input_grid is not None:
@@ -290,6 +289,7 @@ class GuidedSamplerPhase(SamplerPhase):
         prior_bp_nuc = stats.rv_discrete(name='prior_bp_nuc',
                                          values=(xk, normed_semb_index_hf),
                                          shapes='m,n')
+
 
     def get_distance(self, source, grid, input):
         es_list = []
@@ -330,7 +330,7 @@ class GuidedSamplerPhase(SamplerPhase):
         points[:, 2] += source.depth
         return points[1:2, 1], points[2:3, 0]
 
-    def aic(self, misfits, nparas):
+    def aic_old(self, misfits, nparas):
 
         sig = 0.03
         res = (num.nanmean(misfits))/sig
@@ -339,6 +339,22 @@ class GuidedSamplerPhase(SamplerPhase):
         aic = (2.*(nparas))-2*logLLK
         sbic = -2*logLLK+(num.log(len(misfits))*nparas)
         return aic
+
+    def aic(self, params, nparas):
+        cov = num.cov(params.T)
+        means = num.mean(params, axis=0)
+        var = multivariate_normal(mean=means, cov=cov, allow_singular=True)
+
+        vals_llk = var.logpdf(params)
+        max = num.max(vals_llk)
+        max_like = 0
+        idx_max = [i for i, j in enumerate(vals_llk) if j == max]
+
+        aic = (2.*(nparas))-2*max
+        sbic = -2*max+(num.log(0.9)*nparas)
+        return aic
+
+
 
     def get_raw_sample(self, problem, iiter, chainss, misfits, nsegmentations):
 
@@ -378,7 +394,16 @@ class GuidedSamplerPhase(SamplerPhase):
         check_bounds_lf = False
         check_bounds_hf = False
         while check_bounds is True:
-            model = problem.random_uniform(xbounds, self.get_rstate())
+            # get model only for nsources?
+            model = problem.random_uniform(xbounds, self.get_rstate(), nsegmentations)
+
+    #        if self.nsegmentations == 0:
+    #            model = model[0:13]
+    #        if self.nsegmentations == 1:
+    #            model = model[0:26]
+    #        if self.nsegmentations == 2:
+    #            model = model[0:39]
+
             sources = []
             polygons = []
             times_src_mean = []
@@ -429,8 +454,8 @@ class GuidedSamplerPhase(SamplerPhase):
                        north_shift >= xbounds[1+13*i, 0] and\
                        north_shift <= xbounds[1+13*i, 1]:
                         check_bounds_lf = False
-                        model[1+13*i+self.nsegmentations*13] = north_shift
-                        model[0+13*i+self.nsegmentations*13] = east_shift
+                        model[1+13*i] = north_shift
+                        model[0+13*i] = east_shift
 
                 source = problem.get_source(model, i, self.nsegmentations)
 
@@ -441,7 +466,7 @@ class GuidedSamplerPhase(SamplerPhase):
                                    (outline[3, 0], outline[3, 1])])
 
                 if self.bp_input_grid_timecum_lf is not None:
-                    time = model[11+13*i+self.nsegmentations*13]
+                    time = model[11+13*i]
                     time_bounds_low.append(xbounds[11+13*i, 0])
                     time_bounds_high.append(xbounds[11+13*i, 1])
                     es_list, ns_list = self.get_distance(source,
@@ -484,8 +509,8 @@ class GuidedSamplerPhase(SamplerPhase):
                                                                 source.strike)
                         nuc_x = distx/source.length
                         nuc_y = disty/source.width
-                        model[9+13*i+self.nsegmentations*13] = nuc_x
-                        model[10+13*i+self.nsegmentations*13] = nuc_y
+                        model[9+13*i] = nuc_x
+                        model[10+13*i] = nuc_y
                         check_bounds_hf = False
 
                 source = problem.get_source(model, i, nsegmentations)
@@ -550,7 +575,10 @@ class GuidedSamplerPhase(SamplerPhase):
             else:
                 print('redraw')
                 print(check_bounds_lf, check_bounds_hf, intersect)
-        model = model[0:13+self.nsegmentations*13]
+                #skip
+                check_bounds = False
+
+        #model = model[0:13+self.nsegmentations*13]
         return Sample(model=model, nsources=self.nsources), chainss
 
 
@@ -600,7 +628,7 @@ class DirectedSamplerPhase(SamplerPhase):
         rstate = self.get_rstate()
         factor = self.get_scatter_scale_factor(iiter)
         npar = problem.nparameters
-        npar = 13*(nsegmentation+1)
+        npar = 13*(nsegmentation+1) # + target
         pnames = problem.parameter_names
         xbounds = problem.get_parameter_bounds()
         chains = chainss[nsegmentation]
@@ -647,7 +675,7 @@ class DirectedSamplerPhase(SamplerPhase):
                             v <= xbounds[ipar, 1]:
 
                         break
-
+                    # check!!
                     if ntries > self.ntries_sample_limit:
                         logger.warning(
                             'failed to produce a suitable '
@@ -1153,9 +1181,20 @@ class transDOptimiser(Optimiser):
     nbootstrap = Int.T(default=100)
     bootstrap_type = BootstrapTypeChoice.T(default='bayesian')
     bootstrap_seed = Int.T(default=23)
-
+    aic_history = []
+    nsources_history = []
     SPARKS = u'\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588'
     ACCEPTANCE_AVG_LEN = 100
+    nsources_max = Float.T(
+        default=3,
+        optional=True,
+        help='maximum number of sources allowed')
+
+    inertia = Float.T(
+        default=0.05,
+        optional=True,
+        help='probability of birth/death')
+
 
     def __init__(self, **kwargs):
         Optimiser.__init__(self, **kwargs)
@@ -1163,7 +1202,8 @@ class transDOptimiser(Optimiser):
         self._bootstrap_residuals = None
         self._status_chains = None
         self._rstate_bootstrap = None
-
+        self.aic_history = []
+        self.nsources_history = []
     def get_rstate_bootstrap(self):
         if self._rstate_bootstrap is None:
             self._rstate_bootstrap = num.random.RandomState(
@@ -1301,7 +1341,7 @@ class transDOptimiser(Optimiser):
 
             self._tlog_last = t
 
-    def aic(self, misfits, nparas):
+    def aic_old(self, misfits, nparas):
 
         sig = 0.03
         res = (num.nanmean(misfits))/sig
@@ -1310,6 +1350,58 @@ class transDOptimiser(Optimiser):
         aic = (2.*(nparas))-2*logLLK
         sbic = -2*logLLK+(num.log(len(misfits))*nparas)
         return aic
+
+    def aic(self, params, nparas):
+        cov = num.cov(params.T)
+        if len(params) == 1:
+            cov = num.ones(num.shape(cov))
+
+        means = num.mean(params, axis=0)
+    #    print(params)
+    #    print(means)
+    #    print(cov)
+        var = multivariate_normal(mean=means, cov=cov, allow_singular=True)
+
+        vals_llk = var.logpdf(params)
+        max = num.max(vals_llk)
+        max_like = 0
+        idx_max = [i for i, j in enumerate(vals_llk) if j == max]
+
+        aic = (2.*(nparas))-2*max
+        sbic = -2*max+(num.log(0.9)*nparas)
+        return aic
+
+    def birth_death(self):
+        aic_current = self.aic_history[-1]
+        nsources_current = self.nsources_history[-1]
+        for i, hs in enumerate(reversed(self.nsources_history)):
+            if hs is not nsources_current:
+                hsp = self.aic_history[i]
+                break
+            else:
+                hsp = aic_current
+
+        inertia = num.random.uniform(0.001, 1.)
+        if inertia > self.inertia:
+            nsources = nsources_current
+        else:
+            choice = num.random.uniform(0, 2)+(hsp/aic_current)
+            if nsources_current >= 4:   #nsources max
+                choice = choice-1
+            if choice < 2.45: #death
+                if nsources_current>1:
+                    nsources = nsources_current-1
+                else:
+                    nsources = nsources_current
+            elif choice > 2.5: #birth
+                nsources = nsources_current+1
+                if nsources > self.nsources_max:
+                    nsources = nsources_current
+            else:
+                nsources = nsources_current
+    #    print('preferred number of sources at this step:')
+    #    print(nsources)
+        return nsources
 
     def optimise(self, problem, rundir=None):
         if rundir is not None:
@@ -1344,7 +1436,9 @@ class transDOptimiser(Optimiser):
         misfitss = [None, None, None]
         misfits = None
         chains_nsources = []
-
+        aic_history = []
+        nsources_history = []
+        self.nsources_history.append(0)
         for iiter in range(niter):
             for jiter in range(nsegmentations):
                 iphase, phase, iiter_phase = self.get_sampler_phase(iiter)
@@ -1353,7 +1447,6 @@ class transDOptimiser(Optimiser):
                 misfits = misfitss[jiter]
                 sample, chainss = phase.get_sample(problem, iiter_phase, chainss, misfits, jiter)
                 sample.iphase = iphase
-
                 if isbad_mask is not None and num.any(isbad_mask):
                     isok_mask = num.logical_not(isbad_mask)
                 else:
@@ -1361,16 +1454,7 @@ class transDOptimiser(Optimiser):
                 misfits = problem.misfits(sample.model, sample.nsources, jiter,
                                           mask=isok_mask)
                 misfitss[jiter] = misfits
-                aic = self.aic(misfits, (jiter+1)*12)
-                if len(chains_nsources) < nlinks_nsources:
-                    chains_nsources.append([aic, jiter])
-                else:
-                    # here choice from the chains_nsources
-                    min_set = min(chains_nsources, key=lambda xs: xs[0])[0]
-                    if min_set < aic:
-                        for idx, vaic in chains_nsources:
-                            if vaic == min_set:
-                                chains_nsources[idx] = [aic, jiter]
+
                 bootstrap_misfits = problem.combine_misfits(
                     misfits,
                     extra_weights=self.get_bootstrap_weights(problem),
@@ -1400,8 +1484,10 @@ class transDOptimiser(Optimiser):
                     raise BadProblem(
                         'Problem %s: all target misfit values are NaN.'
                         % problem.name)
-                if jiter == 0:
+            #    print(sample.model)
+            #    print(len(sample.model))
 
+                if jiter == 0:
                     history1.append(
                         sample.model, misfits,
                         bootstrap_misfits,
@@ -1412,20 +1498,49 @@ class transDOptimiser(Optimiser):
                         bootstrap_misfits,
                         sample.pack_context())
                 if jiter == 2:
-
                     history3.append(
                         sample.model, misfits,
                         bootstrap_misfits,
                         sample.pack_context())
-            chains_nsources_mega = num.asarray(chains_nsources)
-            fobj_cum = open(os.path.join('chains_nsources_iter_%s.ASC'%iiter),'w')
-            for x, y in zip(chains_nsources_mega[:][:,0],chains_nsources_mega[:][:,1]):
-                fobj_cum.write('%.2f %.2f\n' % (x,y))
-            fobj_cum.close()
+                # here aic with paramss
+                #aic_old = self.aic_old(misfits, (jiter+1)*12)
+                # get history of parameters? history.models
+                if iiter > 1:
+                    if jiter == 0:
+                        aic = self.aic(history1.models, (jiter+1)*12)
+                    if jiter == 1:
+                        aic = self.aic(history2.models, (jiter+1)*12)
+                    if jiter == 2:
+                        aic = self.aic(history3.models, (jiter+1)*12)
+                else:
+                    aic = 1000.
+                self.aic_history.append(aic)
+                # this does not make sense, should be choice afterwards?
+                self.nsources_birth_death = self.birth_death()
+                self.nsources_history.append(self.nsources_birth_death)
+                if len(chains_nsources) < nlinks_nsources:
+                    chains_nsources.append([aic, jiter])
+                else:
+                    # here choice from the chains_nsources
+                    min_set = min(chains_nsources, key=lambda xs: xs[0])[0]
+                    if min_set < aic:
+                        for idx, vaic in chains_nsources:
+                            if vaic == min_set:
+                                chains_nsources[idx] = [aic, jiter]
+        #    chains_nsources_mega = num.asarray(chains_nsources)
+        #    fobj_cum = open(os.path.join('chains_nsources_iter_%s.ASC'%iiter),'w')
+        #    for x, y in zip(chains_nsources_mega[:][:,0],chains_nsources_mega[:][:,1]):
+        #        fobj_cum.write('%.2f %.2f\n' % (x,y))
+        #    fobj_cum.close()
         chains_nsources = num.asarray(chains_nsources)
         fobj_cum = open(os.path.join('chains_nsources.ASC'),'w')
         for x, y in zip(chains_nsources[:][:,0],chains_nsources[:][:,1]):
             fobj_cum.write('%.2f %.2f\n' % (x,y))
+        fobj_cum.close()
+        nsources_history = num.asarray(self.nsources_history)
+        fobj_cum = open(os.path.join('birth_death.ASC'),'w')
+        for x in nsources_history:
+            fobj_cum.write('%.2f\n' % (x))
         fobj_cum.close()
 
     @property

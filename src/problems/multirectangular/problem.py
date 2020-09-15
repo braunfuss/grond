@@ -99,7 +99,7 @@ class MultiRectangularProblem(Problem):
         return arr
 
     def get_source(self, x, i, nseg):
-        d = self.get_parameter_dict(x[0+13*i+nseg*13:13+i*13+nseg*13], nsources=True)
+        d = self.get_parameter_dict(x[0+13*i:13+i*13], nsources=True)
         p = {}
         for k in self.base_source.keys():
             if k in d:
@@ -110,10 +110,23 @@ class MultiRectangularProblem(Problem):
 
         return source
 
-    def random_uniform(self, xbounds, rstate, nseg):
-        x = num.zeros(nseg)
-        for i in range(nseg):
-            x[i] = rstate.uniform(xbounds[i, 0], xbounds[i, 1])
+#    def random_uniform(self, xbounds, rstate, nseg):
+#        x = num.zeros(nseg)
+#        for i in range(nseg):
+#            x[i] = rstate.uniform(xbounds[i, 0], xbounds[i, 1])
+#
+#        return x
+
+    def random_uniform(self, xbounds, rstate, nseg, fixed_magnitude=False):
+        nparas = 13*(nseg+1)
+        max_sources = 3
+        target_params = len(xbounds) - max_sources*13
+        max_sources = 3
+        x = num.zeros(nparas+target_params)
+        for i in range(nparas):
+            x[i] = num.random.uniform(xbounds[i, 0], xbounds[i, 1])
+        for i in range(target_params):
+            x[i+nparas] = num.random.uniform(xbounds[i+max_sources*13, 0], xbounds[i+max_sources*13, 1])
 
         return x
 
